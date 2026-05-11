@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Qwen 具身论文雷达</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Daily Robotics / Embodied AI</p>
+          <h1>Qwen 具身论文雷达</h1>
+        </div>
+        <div class="status-row">
+          <span id="qwenStatus" class="status status-muted">检查 Qwen</span>
+          <button id="refreshButton" class="primary-button" type="button" title="刷新论文">
+            <span aria-hidden="true">↻</span>
+            刷新
+          </button>
+        </div>
+      </header>
+
+      <section class="control-band" aria-label="筛选">
+        <div class="segmented" role="group" aria-label="时间范围">
+          <button class="segment" type="button" data-days="1">1 天</button>
+          <button class="segment" type="button" data-days="2">2 天</button>
+          <button class="segment active" type="button" data-days="7">7 天</button>
+        </div>
+        <label class="field">
+          <span>数量</span>
+          <input id="limitInput" type="number" min="3" max="50" value="18" />
+        </label>
+        <label class="toggle">
+          <input id="qwenToggle" type="checkbox" checked />
+          <span>Qwen 总结</span>
+        </label>
+      </section>
+
+      <section class="brief-band">
+        <div class="brief-copy">
+          <p class="section-label">今日总览</p>
+          <p id="dailyBrief" class="brief-text">正在载入论文列表...</p>
+        </div>
+        <div id="themeList" class="theme-list" aria-label="主题"></div>
+      </section>
+
+      <section class="meta-grid" aria-label="运行状态">
+        <div>
+          <span class="meta-label">来源</span>
+          <strong id="sourceValue">arXiv</strong>
+        </div>
+        <div>
+          <span class="meta-label">生成时间</span>
+          <strong id="timeValue">-</strong>
+        </div>
+        <div>
+          <span class="meta-label">论文数</span>
+          <strong id="countValue">-</strong>
+        </div>
+      </section>
+
+      <section class="paper-section">
+        <div class="section-head">
+          <p class="section-label">论文队列</p>
+          <span id="modeValue" class="mode-badge">摘要模式</span>
+        </div>
+        <div id="paperList" class="paper-list"></div>
+      </section>
+    </main>
+
+    <template id="paperTemplate">
+      <article class="paper-card">
+        <div class="paper-main">
+          <div class="paper-kicker">
+            <span class="priority"></span>
+            <span class="category"></span>
+            <span class="date"></span>
+          </div>
+          <h2 class="title"></h2>
+          <p class="authors"></p>
+          <p class="one-line"></p>
+          <dl class="paper-details">
+            <div>
+              <dt>价值</dt>
+              <dd class="why"></dd>
+            </div>
+            <div>
+              <dt>局限</dt>
+              <dd class="limits"></dd>
+            </div>
+          </dl>
+          <div class="method-list"></div>
+        </div>
+        <div class="paper-actions">
+          <a class="link abs-link" target="_blank" rel="noreferrer">arXiv</a>
+          <a class="link pdf-link" target="_blank" rel="noreferrer">PDF</a>
+        </div>
+      </article>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
