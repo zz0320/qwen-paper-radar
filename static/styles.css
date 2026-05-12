@@ -51,12 +51,12 @@ select {
 .shell {
   width: min(1220px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 28px 0 52px;
+  padding: 22px 0 52px;
 }
 
 .topbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
   margin-bottom: 18px;
@@ -70,11 +70,16 @@ select {
 }
 
 .brand-logo {
-  width: clamp(44px, 5.2vw, 64px);
-  height: clamp(44px, 5.2vw, 64px);
-  flex: 0 0 auto;
-  border-radius: 18px;
-  box-shadow: 0 14px 28px rgba(32, 33, 36, 0.14);
+  display: block;
+  width: 44px;
+  height: 44px;
+  max-width: 44px;
+  max-height: 44px;
+  flex: 0 0 44px;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  object-fit: contain;
+  box-shadow: 0 8px 18px rgba(32, 33, 36, 0.12);
 }
 
 .eyebrow,
@@ -90,8 +95,8 @@ select {
 
 h1 {
   margin: 4px 0 0;
-  font-size: clamp(32px, 4.4vw, 58px);
-  line-height: 1.02;
+  font-size: clamp(28px, 2.8vw, 38px);
+  line-height: 1.06;
   letter-spacing: 0;
 }
 
@@ -808,7 +813,12 @@ h1 {
   }
 
   .brand-logo {
-    border-radius: 14px;
+    width: 40px;
+    height: 40px;
+    max-width: 40px;
+    max-height: 40px;
+    flex-basis: 40px;
+    border-radius: 11px;
   }
 
   .digest-head {
