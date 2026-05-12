@@ -30,6 +30,10 @@ const state = {
   papers: [],
   filtered: [],
   userCategories: DEFAULT_CATEGORIES,
+  dailyBrief: "",
+  themes: [],
+  generatedAt: "",
+  digestMarkdown: "",
   view: "all",
   category: "all",
   sort: "priority",
@@ -47,6 +51,13 @@ const els = {
   categoryFilter: document.querySelector("#categoryFilter"),
   sortSelect: document.querySelector("#sortSelect"),
   clearFiltersButton: document.querySelector("#clearFiltersButton"),
+  copyDigestButton: document.querySelector("#copyDigestButton"),
+  copyDigestStatus: document.querySelector("#copyDigestStatus"),
+  digestDate: document.querySelector("#digestDate"),
+  digestLead: document.querySelector("#digestLead"),
+  digestMustRead: document.querySelector("#digestMustRead"),
+  digestSignals: document.querySelector("#digestSignals"),
+  digestQueue: document.querySelector("#digestQueue"),
   dailyBrief: document.querySelector("#dailyBrief"),
   themeList: document.querySelector("#themeList"),
   sourceValue: document.querySelector("#sourceValue"),
@@ -70,6 +81,16 @@ function formatDate(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatReportDate(value) {
+  const date = value ? new Date(value) : new Date();
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).format(date);
 }
 
 function priorityLabel(value) {
@@ -180,6 +201,112 @@ function compareByPriority(a, b) {
   );
 }
 
+function appendListItem(list, text) {
+  const item = document.createElement("li");
+  item.textContent = text;
+  list.append(item);
+}
+
+function topPapers(count = 3) {
+  return [...state.papers]
+    .sort(compareByPriority)
+    .slice(0, count);
+}
+
+function methodSignals() {
+  const counts = new Map();
+  for (const paper of state.papers) {
+    for (const method of paper.methods || paper.keyword_matches || []) {
+      const key = String(method).trim();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([name, count]) => `${name} (${count})`);
+}
+
+function digestSignals() {
+  const themes = (state.themes || []).filter(Boolean).slice(0, 4);
+  if (themes.length) return themes;
+  return methodSignals();
+}
+
+function digestQueue() {
+  const highCount = state.papers.filter((paper) => paper.read_priority === "high").length;
+  const favorites = state.papers.filter((paper) => paper.favorite).length;
+  const unread = state.papers.filter((paper) => paper.status === "unread").length;
+  const reading = state.papers.filter((paper) => paper.status === "reading").length;
+  const notes = state.papers.filter((paper) => (paper.notes || "").trim()).length;
+  return [
+    `先读 ${highCount} 篇高优先级论文，重点确认实验设置和代码可用性`,
+    favorites ? `复查 ${favorites} 篇已收藏论文，补充复现或项目关联笔记` : `从必读列表中挑 1-2 篇加入收藏或待复现`,
+    reading ? `${reading} 篇在读论文需要收口结论` : `${unread} 篇仍未读，可按分类分批处理`,
+    notes ? `${notes} 篇已有笔记，适合沉淀到周报或项目 backlog` : `读完后在卡片里补一条笔记，方便后续检索`,
+  ];
+}
+
+function buildDigestMarkdown(mustRead, signals, queue) {
+  const date = formatReportDate(state.generatedAt);
+  const lines = [
+    `# 具身智读速览｜${date}`,
+    "",
+    `> ${state.dailyBrief || "暂无今日总览。"}`,
+    "",
+    "## 必读论文",
+  ];
+  if (mustRead.length) {
+    mustRead.forEach((paper, index) => {
+      lines.push(`${index + 1}. [${paper.title}](${paper.arxiv_url})`);
+      lines.push(`   - ${paper.one_line || paper.why_it_matters || "待阅读原文确认。"}`);
+    });
+  } else {
+    lines.push("- 暂无匹配论文。");
+  }
+  lines.push("", "## 方向信号");
+  for (const signal of signals) {
+    lines.push(`- ${signal}`);
+  }
+  lines.push("", "## 阅读队列");
+  for (const item of queue) {
+    lines.push(`- ${item}`);
+  }
+  return lines.join("\n");
+}
+
+function renderDigest() {
+  const mustRead = topPapers(3);
+  const signals = digestSignals();
+  const queue = digestQueue();
+
+  els.digestDate.textContent = formatReportDate(state.generatedAt);
+  els.digestLead.textContent = state.dailyBrief || "暂无今日总览。";
+  els.digestMustRead.replaceChildren();
+  els.digestSignals.replaceChildren();
+  els.digestQueue.replaceChildren();
+
+  if (!state.papers.length) {
+    appendListItem(els.digestMustRead, "暂无匹配论文");
+    appendListItem(els.digestSignals, "等待新的机器人/具身智能论文");
+    appendListItem(els.digestQueue, "稍后刷新或扩大时间范围");
+    state.digestMarkdown = buildDigestMarkdown([], ["等待新的机器人/具身智能论文"], ["稍后刷新或扩大时间范围"]);
+    return;
+  }
+
+  for (const paper of mustRead) {
+    appendListItem(els.digestMustRead, `${paper.title}｜${paper.one_line || paper.why_it_matters || "待阅读原文确认"}`);
+  }
+  for (const signal of signals) {
+    appendListItem(els.digestSignals, signal);
+  }
+  for (const item of queue) {
+    appendListItem(els.digestQueue, item);
+  }
+  state.digestMarkdown = buildDigestMarkdown(mustRead, signals, queue);
+}
+
 function applyFilters() {
   const query = state.search.trim().toLowerCase();
   state.filtered = state.papers
@@ -188,6 +315,7 @@ function applyFilters() {
     .filter((paper) => !query || searchableText(paper).includes(query))
     .sort(comparePapers);
   renderStats();
+  renderDigest();
   renderPapers(state.filtered);
 }
 
@@ -341,6 +469,9 @@ function renderResponse(data) {
     ...paper,
   }));
 
+  state.dailyBrief = data.daily_brief || "";
+  state.themes = data.themes || [];
+  state.generatedAt = data.generated_at || "";
   els.dailyBrief.textContent = data.daily_brief || "没有生成总览。";
   renderThemes(data.themes || []);
   els.sourceValue.textContent = data.source || "arXiv";
@@ -363,6 +494,28 @@ function renderResponse(data) {
   }
 
   applyFilters();
+}
+
+async function copyDigest() {
+  if (!state.digestMarkdown) return;
+  try {
+    await navigator.clipboard.writeText(state.digestMarkdown);
+    els.copyDigestStatus.textContent = "日报已复制";
+  } catch (error) {
+    const textarea = document.createElement("textarea");
+    textarea.value = state.digestMarkdown;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+    els.copyDigestStatus.textContent = "日报已复制";
+  }
+  setTimeout(() => {
+    els.copyDigestStatus.textContent = "";
+  }, 1800);
 }
 
 async function loadSettings() {
@@ -480,6 +633,7 @@ els.clearFiltersButton.addEventListener("click", () => {
 });
 
 els.refreshButton.addEventListener("click", () => loadPapers({ refresh: true }));
+els.copyDigestButton.addEventListener("click", copyDigest);
 
 loadSettings().then(() => {
   loadHealth();

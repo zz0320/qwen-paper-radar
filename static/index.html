@@ -73,6 +73,38 @@
         </div>
       </section>
 
+      <section class="digest-panel" aria-label="速览日报">
+        <div class="digest-head">
+          <div>
+            <p class="section-label">速览日报</p>
+            <h2>今日阅读简报</h2>
+          </div>
+          <div class="digest-actions">
+            <span id="digestDate" class="mode-badge">生成中</span>
+            <button id="copyDigestButton" class="ghost-button" type="button">复制日报</button>
+          </div>
+        </div>
+        <div class="digest-grid">
+          <article class="digest-lead">
+            <span class="digest-label">一句话结论</span>
+            <p id="digestLead">等待论文数据...</p>
+          </article>
+          <article>
+            <span class="digest-label">必读论文</span>
+            <ol id="digestMustRead" class="digest-list"></ol>
+          </article>
+          <article>
+            <span class="digest-label">方向信号</span>
+            <ul id="digestSignals" class="digest-list"></ul>
+          </article>
+          <article>
+            <span class="digest-label">阅读队列</span>
+            <ul id="digestQueue" class="digest-list"></ul>
+          </article>
+        </div>
+        <p id="copyDigestStatus" class="copy-status" aria-live="polite"></p>
+      </section>
+
       <section class="filter-panel" aria-label="论文筛选">
         <div class="filter-chips" role="group" aria-label="视图">
           <button class="filter-chip active" type="button" data-view="all">全部</button>
