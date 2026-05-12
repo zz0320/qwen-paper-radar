@@ -202,7 +202,7 @@ h1 {
 
 .command-bar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto auto auto auto;
+  grid-template-columns: minmax(260px, 1fr) auto auto auto;
   gap: 12px;
   padding: 12px;
   border: 1px solid var(--line);
@@ -498,6 +498,55 @@ h1 {
 .paper-list {
   display: grid;
   gap: 12px;
+}
+
+.feed-sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 56px;
+  margin-top: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.feed-sentinel.is-hidden {
+  display: none;
+}
+
+.feed-sentinel.is-done {
+  border-style: solid;
+  background: transparent;
+}
+
+.feed-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--teal);
+  box-shadow: 0 0 0 5px rgba(15, 118, 110, 0.12);
+}
+
+.feed-sentinel.is-loading .feed-dot {
+  animation: feedPulse 0.9s ease-in-out infinite;
+}
+
+@keyframes feedPulse {
+  0%,
+  100% {
+    transform: scale(0.86);
+    opacity: 0.55;
+  }
+
+  50% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
 }
 
 .paper-card {

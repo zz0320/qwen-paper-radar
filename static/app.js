@@ -29,7 +29,10 @@ const PRIORITY_WEIGHT = {
 
 const state = {
   days: 7,
-  limit: 18,
+  pageSize: 12,
+  nextOffset: 0,
+  totalAvailable: 0,
+  hasMore: true,
   qwen: true,
   loading: false,
   papers: [],
@@ -51,7 +54,6 @@ const els = {
   qwenStatus: document.querySelector("#qwenStatus"),
   refreshButton: document.querySelector("#refreshButton"),
   qwenToggle: document.querySelector("#qwenToggle"),
-  limitInput: document.querySelector("#limitInput"),
   searchInput: document.querySelector("#searchInput"),
   categoryFilter: document.querySelector("#categoryFilter"),
   sortSelect: document.querySelector("#sortSelect"),
@@ -75,6 +77,8 @@ const els = {
   modeValue: document.querySelector("#modeValue"),
   resultHint: document.querySelector("#resultHint"),
   paperList: document.querySelector("#paperList"),
+  feedSentinel: document.querySelector("#feedSentinel"),
+  feedStatus: document.querySelector("#feedStatus"),
   template: document.querySelector("#paperTemplate"),
 };
 
@@ -113,6 +117,7 @@ function setLoading(loading) {
   state.loading = loading;
   els.refreshButton.disabled = loading;
   els.refreshButton.querySelector("span").textContent = loading ? "…" : "↻";
+  renderFeedStatus();
 }
 
 function renderCategoryOptions(select, selected, includeAll = false) {
@@ -377,7 +382,11 @@ function renderStats() {
   els.favoriteValue.textContent = String(favorites);
   els.highValue.textContent = String(high);
   els.libraryValue.textContent = tracked ? `${tracked} 条状态` : "未建立";
-  els.resultHint.textContent = `${state.filtered.length} / ${total} 篇`;
+  const available = state.totalAvailable || total;
+  els.resultHint.textContent = state.hasMore
+    ? `已加载 ${total} / ${available} 篇`
+    : `${state.filtered.length} / ${total} 篇`;
+  renderFeedStatus();
 }
 
 function emptyText() {
@@ -451,6 +460,31 @@ function renderPapers(papers) {
   }
 }
 
+function renderFeedStatus() {
+  if (!els.feedSentinel || !els.feedStatus) return;
+  if (state.loading && state.papers.length) {
+    els.feedSentinel.classList.remove("is-done", "is-hidden");
+    els.feedSentinel.classList.add("is-loading");
+    els.feedStatus.textContent = "正在加载下一批论文...";
+    return;
+  }
+
+  els.feedSentinel.classList.remove("is-loading");
+  if (!state.papers.length) {
+    els.feedSentinel.classList.add("is-hidden");
+    return;
+  }
+
+  els.feedSentinel.classList.remove("is-hidden");
+  if (state.hasMore) {
+    els.feedSentinel.classList.remove("is-done");
+    els.feedStatus.textContent = "继续下滑加载更多论文";
+  } else {
+    els.feedSentinel.classList.add("is-done");
+    els.feedStatus.textContent = "当前时间范围已全部加载";
+  }
+}
+
 function updateLocalPaper(id, changes) {
   const paper = state.papers.find((item) => item.id === id);
   if (!paper) return null;
@@ -512,8 +546,8 @@ function scheduleNoteSave(id, value, saveStatus) {
   );
 }
 
-function renderResponse(data) {
-  state.papers = (data.papers || []).map((paper) => ({
+function normalizePaper(paper) {
+  return {
     favorite: false,
     user_category: "未分类",
     status: "unread",
@@ -523,13 +557,50 @@ function renderResponse(data) {
     industry_level: "archive",
     industry_label: "归档备查",
     ...paper,
-  }));
+  };
+}
 
-  state.dailyBrief = data.daily_brief || "";
-  state.themes = data.themes || [];
+function mergePapers(nextPapers) {
+  const seen = new Set(state.papers.map((paper) => paper.id));
+  for (const paper of nextPapers) {
+    if (seen.has(paper.id)) continue;
+    state.papers.push(paper);
+    seen.add(paper.id);
+  }
+}
+
+function mergeThemes(nextThemes) {
+  const merged = new Set(state.themes || []);
+  for (const theme of nextThemes || []) {
+    if (theme) merged.add(theme);
+  }
+  state.themes = [...merged].slice(0, 8);
+}
+
+function renderResponse(data, { append = false } = {}) {
+  const nextPapers = (data.papers || []).map(normalizePaper);
+  if (append) {
+    mergePapers(nextPapers);
+  } else {
+    state.papers = nextPapers;
+  }
+
+  const pagination = data.pagination || {};
+  state.nextOffset = pagination.next_offset ?? state.papers.length;
+  state.totalAvailable = pagination.total ?? state.papers.length;
+  state.hasMore = Boolean(pagination.has_more);
+
+  if (!append || !state.dailyBrief) {
+    state.dailyBrief = data.daily_brief || "";
+  }
+  if (append) {
+    mergeThemes(data.themes || []);
+  } else {
+    state.themes = data.themes || [];
+  }
   state.generatedAt = data.generated_at || "";
-  els.dailyBrief.textContent = data.daily_brief || "没有生成总览。";
-  renderThemes(data.themes || []);
+  els.dailyBrief.textContent = state.dailyBrief || "没有生成总览。";
+  renderThemes(state.themes || []);
   els.sourceValue.textContent = data.source || "arXiv";
   els.timeValue.textContent = formatDate(data.generated_at);
 
@@ -602,11 +673,26 @@ async function loadHealth() {
 }
 
 async function loadPapers({ refresh = false } = {}) {
+  return loadFeedPage({ refresh, append: false });
+}
+
+async function loadNextPage() {
+  if (!state.hasMore || state.loading) return;
+  return loadFeedPage({ append: true });
+}
+
+async function loadFeedPage({ refresh = false, append = false } = {}) {
   if (state.loading) return;
+  if (!append) {
+    state.nextOffset = 0;
+    state.totalAvailable = 0;
+    state.hasMore = true;
+  }
   setLoading(true);
   const params = new URLSearchParams({
     days: String(state.days),
-    limit: String(state.limit),
+    offset: String(append ? state.nextOffset : 0),
+    page_size: String(state.pageSize),
     qwen: state.qwen ? "1" : "0",
     refresh: refresh ? "1" : "0",
   });
@@ -617,15 +703,18 @@ async function loadPapers({ refresh = false } = {}) {
     if (!response.ok) {
       throw new Error(data.error || "论文接口请求失败");
     }
-    renderResponse(data);
+    renderResponse(data, { append });
   } catch (error) {
     setStatus("status-error", "抓取失败");
-    els.dailyBrief.textContent = error.message;
-    state.papers = [];
-    state.filtered = [];
-    renderThemes([]);
-    renderStats();
-    renderPapers([]);
+    if (!append) {
+      els.dailyBrief.textContent = error.message;
+      state.papers = [];
+      state.filtered = [];
+      state.hasMore = false;
+      renderThemes([]);
+      renderStats();
+      renderPapers([]);
+    }
   } finally {
     setLoading(false);
   }
@@ -647,13 +736,6 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     state.view = button.dataset.view;
     applyFilters();
   });
-});
-
-els.limitInput.addEventListener("change", () => {
-  const next = Number(els.limitInput.value || 18);
-  state.limit = Math.max(3, Math.min(50, next));
-  els.limitInput.value = String(state.limit);
-  loadPapers();
 });
 
 els.qwenToggle.addEventListener("change", () => {
@@ -690,6 +772,18 @@ els.clearFiltersButton.addEventListener("click", () => {
 
 els.refreshButton.addEventListener("click", () => loadPapers({ refresh: true }));
 els.copyDigestButton.addEventListener("click", copyDigest);
+
+if ("IntersectionObserver" in window && els.feedSentinel) {
+  const feedObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        loadNextPage();
+      }
+    },
+    { rootMargin: "700px 0px 900px" },
+  );
+  feedObserver.observe(els.feedSentinel);
+}
 
 loadSettings().then(() => {
   loadHealth();

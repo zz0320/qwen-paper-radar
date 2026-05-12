@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>具身智读</title>
     <link rel="icon" href="/logo.svg?v=2" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=3" />
   </head>
   <body>
     <main class="shell">
@@ -35,11 +35,6 @@
           <button class="segment active" type="button" data-days="7">7 天</button>
         </div>
 
-        <label class="field compact-field">
-          <span>数量</span>
-          <input id="limitInput" type="number" min="3" max="50" value="18" />
-        </label>
-
         <label class="toggle">
           <input id="qwenToggle" type="checkbox" checked />
           <span>Qwen</span>
@@ -59,7 +54,7 @@
         </div>
         <div class="brief-stats" aria-label="统计">
           <div>
-            <span class="meta-label">全部</span>
+            <span class="meta-label">已加载</span>
             <strong id="countValue">-</strong>
           </div>
           <div>
@@ -161,6 +156,10 @@
           <span id="resultHint" class="mode-badge">等待数据</span>
         </div>
         <div id="paperList" class="paper-list"></div>
+        <div id="feedSentinel" class="feed-sentinel" aria-live="polite">
+          <span class="feed-dot" aria-hidden="true"></span>
+          <span id="feedStatus">下滑继续加载</span>
+        </div>
       </section>
     </main>
 
@@ -224,6 +223,6 @@
       </article>
     </template>
 
-    <script src="/app.js" defer></script>
+    <script src="/app.js?v=3" defer></script>
   </body>
 </html>

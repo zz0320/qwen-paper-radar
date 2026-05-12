@@ -83,6 +83,8 @@ USER_CATEGORIES = (
     "待复现",
 )
 STATUS_OPTIONS = ("unread", "reading", "done", "skip")
+ARXIV_POOL_SIZE = 250
+DEFAULT_FEED_PAGE_SIZE = 12
 LEGACY_CATEGORY_MAP = {
     "VLA/世界模型": "预训练",
     "操作/抓取": "灵巧操作",
@@ -440,9 +442,9 @@ def fetch_arxiv_pool(max_results: int, refresh: bool) -> list[dict[str, Any]]:
     return papers
 
 
-def fetch_recent_papers(days: int, limit: int, refresh: bool = False) -> list[dict[str, Any]]:
+def fetch_recent_papers(days: int, refresh: bool = False, max_results: int = ARXIV_POOL_SIZE) -> list[dict[str, Any]]:
     cutoff = utc_now() - timedelta(days=days)
-    max_results = max(80, min(250, limit * 12))
+    max_results = max(80, min(ARXIV_POOL_SIZE, max_results))
     by_id: dict[str, dict[str, Any]] = {}
 
     try:
@@ -473,7 +475,7 @@ def fetch_recent_papers(days: int, limit: int, refresh: bool = False) -> list[di
         key=lambda item: (item["score"], item["published"]),
         reverse=True,
     )
-    return sorted_papers[:limit]
+    return sorted_papers
 
 
 def qwen_config() -> dict[str, Any]:
@@ -737,6 +739,18 @@ def derive_industry_signals(paper: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def rank_feed_papers(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        papers,
+        key=lambda paper: (
+            derive_industry_signals(paper)["industry_score"],
+            paper.get("score", 0),
+            paper.get("published", ""),
+        ),
+        reverse=True,
+    )
+
+
 def merge_summaries(papers: list[dict[str, Any]], summary: dict[str, Any]) -> list[dict[str, Any]]:
     by_id = {item.get("id"): item for item in summary.get("papers", []) if isinstance(item, dict)}
     fallback_by_id = {
@@ -823,12 +837,22 @@ class AppHandler(SimpleHTTPRequestHandler):
     def handle_papers(self, parsed: urllib.parse.ParseResult) -> None:
         params = urllib.parse.parse_qs(parsed.query)
         days = parse_int(first(params, "days"), default=2, minimum=1, maximum=14)
-        limit = parse_int(first(params, "limit"), default=18, minimum=3, maximum=50)
+        offset = parse_int(first(params, "offset"), default=0, minimum=0, maximum=1000)
+        page_size = parse_int(
+            first(params, "page_size") or first(params, "limit"),
+            default=DEFAULT_FEED_PAGE_SIZE,
+            minimum=6,
+            maximum=24,
+        )
         refresh = first(params, "refresh") == "1"
         want_qwen = first(params, "qwen", "1") != "0"
 
         try:
-            papers = fetch_recent_papers(days=days, limit=limit, refresh=refresh)
+            all_papers = rank_feed_papers(fetch_recent_papers(days=days, refresh=refresh))
+            total = len(all_papers)
+            papers = all_papers[offset : offset + page_size]
+            next_offset = offset + len(papers)
+            has_more = next_offset < total
             if want_qwen:
                 summary, qwen_meta = summarize_with_qwen(papers, refresh=refresh)
             else:
@@ -844,7 +868,15 @@ class AppHandler(SimpleHTTPRequestHandler):
                 {
                     "generated_at": utc_now().isoformat(),
                     "source": "arXiv",
-                    "filters": {"days": days, "limit": limit, "categories": CATEGORIES},
+                    "filters": {"days": days, "offset": offset, "page_size": page_size, "categories": CATEGORIES},
+                    "pagination": {
+                        "offset": offset,
+                        "page_size": page_size,
+                        "returned": len(papers),
+                        "total": total,
+                        "next_offset": next_offset,
+                        "has_more": has_more,
+                    },
                     "qwen": qwen_meta,
                     "library": library_stats(library),
                     "daily_brief": summary.get("daily_brief", ""),
