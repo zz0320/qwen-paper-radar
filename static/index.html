@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>具身智读</title>
     <link rel="icon" href="/logo.svg?v=2" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=5" />
+    <link rel="stylesheet" href="/styles.css?v=7" />
   </head>
   <body>
     <main class="shell">
@@ -54,6 +54,7 @@
         <div class="load-progress-track" aria-hidden="true">
           <div id="loadProgress" class="load-progress-bar"></div>
         </div>
+        <div id="rangeProgress" class="range-progress" aria-label="时间窗口加载进度"></div>
       </section>
 
       <section class="brief-band">
@@ -219,6 +220,14 @@
               <span>产业分</span>
               <strong class="industry-score">-</strong>
             </div>
+            <div class="source-block affiliations-block">
+              <span>单位</span>
+              <div class="affiliation-list"></div>
+            </div>
+            <div class="source-block external-links-block">
+              <span>外链</span>
+              <div class="external-link-list"></div>
+            </div>
             <label class="select-field stack-field">
               <span>分类</span>
               <select class="category-select"></select>
@@ -246,6 +255,6 @@
       </article>
     </template>
 
-    <script src="/app.js?v=7" defer></script>
+    <script src="/app.js?v=9" defer></script>
   </body>
 </html>

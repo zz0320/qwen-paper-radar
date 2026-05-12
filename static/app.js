@@ -27,6 +27,8 @@ const PRIORITY_WEIGHT = {
   low: 1,
 };
 
+const RANGE_OPTIONS = [1, 3, 7];
+
 const state = {
   days: 7,
   pageSize: 5,
@@ -42,9 +44,11 @@ const state = {
   filtered: [],
   userCategories: DEFAULT_CATEGORIES,
   dailyBrief: "",
+  serverBrief: "",
   themes: [],
   generatedAt: "",
   digestMarkdown: "",
+  rangeCounts: { 1: 0, 3: 0, 7: 0 },
   view: "all",
   category: "all",
   sort: "industry",
@@ -83,6 +87,7 @@ const els = {
   loadStatus: document.querySelector("#loadStatus"),
   loadStatusText: document.querySelector("#loadStatusText"),
   loadProgress: document.querySelector("#loadProgress"),
+  rangeProgress: document.querySelector("#rangeProgress"),
   resultHint: document.querySelector("#resultHint"),
   paperList: document.querySelector("#paperList"),
   feedSentinel: document.querySelector("#feedSentinel"),
@@ -126,6 +131,16 @@ function rangeDigestTitle(days = state.days) {
   return `${rangeLabel(days)}阅读简报`;
 }
 
+function rangeTotal(days = state.days) {
+  return Number(state.rangeCounts?.[days] ?? state.rangeCounts?.[String(days)] ?? 0);
+}
+
+function rangeCountsSuffix() {
+  const counts = RANGE_OPTIONS.map((days) => rangeTotal(days));
+  if (!counts.some((count) => count > 0)) return "";
+  return RANGE_OPTIONS.map((days) => `${days}天 ${rangeTotal(days)}篇`).join(" · ");
+}
+
 function priorityLabel(value) {
   if (value === "high") return "高优先级";
   if (value === "low") return "低优先级";
@@ -149,8 +164,10 @@ function setLoadProgress(value, text) {
   loadProgressValue = Math.max(0, Math.min(100, value));
   els.loadProgress.style.width = `${loadProgressValue}%`;
   if (text) {
-    els.loadStatusText.textContent = text;
+    const suffix = rangeCountsSuffix();
+    els.loadStatusText.textContent = suffix ? `${text} · ${suffix}` : text;
   }
+  renderRangeProgress();
 }
 
 function clearLoadProgressTimer() {
@@ -179,6 +196,21 @@ function phaseLabel(progress, { append = false } = {}) {
   return "正在生成中文结论、产业信号和卡片...";
 }
 
+function loadedProgressLabel() {
+  const total = state.totalAvailable || rangeTotal() || state.papers.length;
+  if (!state.papers.length) return "等待加载论文";
+  if (total > state.papers.length) {
+    return `${rangeLabel()}已加载 ${state.papers.length}/${total} 篇，下滑继续加载`;
+  }
+  return `${rangeLabel()}已加载全部 ${state.papers.length} 篇`;
+}
+
+function loadedProgressPercent() {
+  const total = state.totalAvailable || rangeTotal() || state.papers.length;
+  if (!total) return 0;
+  return Math.max(4, Math.min(100, (state.papers.length / total) * 100));
+}
+
 function startLoadProgress(options = {}) {
   clearLoadProgressTimer();
   if (!els.loadStatus) return;
@@ -201,9 +233,8 @@ function finishLoadProgress({ append = false } = {}) {
   setLoadProgress(100, append ? `下一批 ${state.pageSize} 篇已加载` : "Qwen 梳理完成，卡片已更新");
   setTimeout(() => {
     if (!state.loading && els.loadStatus?.classList.contains("is-done")) {
-      els.loadStatus.classList.add("is-idle");
       els.loadStatus.classList.remove("is-done");
-      setLoadProgress(0, "Qwen 就绪");
+      setLoadProgress(loadedProgressPercent(), loadedProgressLabel());
     }
   }, 1400);
 }
@@ -268,10 +299,106 @@ function renderSignals(container, signals) {
   }
 }
 
+function domainFromUrl(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch (error) {
+    return "";
+  }
+}
+
+function renderAffiliations(container, affiliations) {
+  const block = container.closest(".source-block");
+  container.replaceChildren();
+  const values = [...new Set((affiliations || []).filter(Boolean))].slice(0, 6);
+  if (block) block.hidden = !values.length;
+  for (const affiliation of values) {
+    const item = document.createElement("span");
+    item.className = "affiliation-chip";
+    item.textContent = affiliation;
+    container.append(item);
+  }
+}
+
+function renderExternalLinks(container, links) {
+  const block = container.closest(".source-block");
+  container.replaceChildren();
+  const values = (links || [])
+    .filter((link) => link && link.url)
+    .slice(0, 6);
+  if (block) block.hidden = !values.length;
+  for (const link of values) {
+    const item = document.createElement("a");
+    const kind = link.kind || "website";
+    const label = link.label || "网站";
+    const domain = link.domain || domainFromUrl(link.url);
+    item.className = `source-link source-${kind}`;
+    item.href = link.url;
+    item.target = "_blank";
+    item.rel = "noreferrer";
+    item.title = link.url;
+
+    const labelEl = document.createElement("span");
+    labelEl.textContent = label;
+    item.append(labelEl);
+    if (domain) {
+      const domainEl = document.createElement("small");
+      domainEl.textContent = domain;
+      item.append(domainEl);
+    }
+    container.append(item);
+  }
+}
+
+function renderRangeProgress() {
+  if (!els.rangeProgress) return;
+  const counts = RANGE_OPTIONS.map((days) => rangeTotal(days));
+  const hasCounts = counts.some((count) => count > 0);
+  if (!hasCounts && !state.papers.length) {
+    els.rangeProgress.hidden = true;
+    return;
+  }
+  els.rangeProgress.hidden = false;
+  els.rangeProgress.replaceChildren();
+
+  const maxCount = Math.max(1, ...counts);
+  for (const days of RANGE_OPTIONS) {
+    const total = rangeTotal(days);
+    const active = Number(days) === Number(state.days);
+    const loaded = active ? Math.min(state.papers.length, total || state.papers.length) : total;
+    const width = active && total ? (loaded / total) * 100 : (total / maxCount) * 100;
+
+    const item = document.createElement("div");
+    item.className = `range-progress-item${active ? " active" : ""}`;
+
+    const meta = document.createElement("div");
+    meta.className = "range-progress-meta";
+    const label = document.createElement("span");
+    label.textContent = `${days} 天`;
+    const count = document.createElement("strong");
+    count.textContent = active && total ? `${loaded}/${total}` : `${total || "-"} 篇`;
+    meta.append(label, count);
+
+    const track = document.createElement("div");
+    track.className = "range-mini-track";
+    const fill = document.createElement("div");
+    fill.className = "range-mini-fill";
+    fill.style.width = `${Math.max(0, Math.min(100, width))}%`;
+    track.append(fill);
+
+    item.append(meta, track);
+    els.rangeProgress.append(item);
+  }
+}
+
 function searchableText(paper) {
   return [
     paper.title,
     (paper.authors || []).join(" "),
+    (paper.affiliations || []).join(" "),
+    (paper.external_links || [])
+      .map((link) => `${link.label || ""} ${link.kind || ""} ${link.domain || ""} ${link.url || ""}`)
+      .join(" "),
     paper.one_line,
     paper.why_it_matters,
     paper.limitations,
@@ -396,12 +523,32 @@ function digestQueue() {
   ];
 }
 
-function buildDigestMarkdown(mustRead, signals, queue) {
+function currentLoadedBrief() {
+  if (!state.papers.length) {
+    return state.serverBrief || `当前${rangeLabel()}范围没有匹配到论文。可以稍后刷新或切换时间范围。`;
+  }
+  const total = state.totalAvailable || rangeTotal() || state.papers.length;
+  const loadedText = total && total > state.papers.length
+    ? `已加载 ${state.papers.length}/${total} 篇`
+    : `已加载 ${state.papers.length} 篇`;
+  const coreCount = state.papers.filter((paper) => paper.industry_level === "core" || paper.industry_level === "watch").length;
+  const highCount = state.papers.filter((paper) => paper.read_priority === "high").length;
+  const openSourceCount = state.papers.filter((paper) =>
+    (paper.external_links || []).some((link) => ["github", "code", "project", "dataset", "huggingface"].includes(link.kind)),
+  ).length;
+  const signals = digestSignals()
+    .map((signal) => signal.replace(/\s+\(\d+\)$/u, ""))
+    .slice(0, 3);
+  const signalText = signals.length ? `当前信号集中在 ${signals.join("、")}` : "当前可先按产业分和优先级扫读";
+  return `${rangeLabel()}${loadedText}机器人/具身智能相关论文，核心/重点 ${coreCount} 篇、高优先级 ${highCount} 篇、可追踪外链 ${openSourceCount} 篇；${signalText}。`;
+}
+
+function buildDigestMarkdown(mustRead, signals, queue, brief) {
   const date = formatReportDate(state.generatedAt);
   const lines = [
     `# 具身智读速览｜${rangeLabel()}｜${date}`,
     "",
-    `> ${state.dailyBrief || `暂无${rangeLabel()}总览。`}`,
+    `> ${brief || `暂无${rangeLabel()}总览。`}`,
     "",
     "## 必读论文",
   ];
@@ -409,8 +556,15 @@ function buildDigestMarkdown(mustRead, signals, queue) {
     mustRead.forEach((paper, index) => {
       lines.push(`${index + 1}. [${paper.title}](${paper.arxiv_url})`);
       const signalText = (paper.industry_signals || []).slice(0, 4).join("、") || "待补充产业信号";
+      const sourceLinks = (paper.external_links || [])
+        .slice(0, 3)
+        .map((link) => `[${link.label || "外链"}](${link.url})`)
+        .join("、");
       lines.push(`   - ${paper.one_line || paper.why_it_matters || "待阅读原文确认。"}`);
       lines.push(`   - 产业信号：${paper.industry_label || "快速扫读"}｜${signalText}`);
+      if (sourceLinks) {
+        lines.push(`   - 外链：${sourceLinks}`);
+      }
     });
   } else {
     lines.push("- 暂无匹配论文。");
@@ -430,11 +584,14 @@ function renderDigest() {
   const mustRead = topPapers(3);
   const signals = digestSignals();
   const queue = digestQueue();
+  const brief = currentLoadedBrief();
+  state.dailyBrief = brief;
 
   els.briefScope.textContent = rangeSummaryLabel();
   els.digestTitle.textContent = rangeDigestTitle();
   els.digestDate.textContent = `${formatReportDate(state.generatedAt)} · ${rangeLabel()}`;
-  els.digestLead.textContent = state.dailyBrief || `暂无${rangeLabel()}总览。`;
+  els.dailyBrief.textContent = brief;
+  els.digestLead.textContent = brief;
   els.digestMustRead.replaceChildren();
   els.digestSignals.replaceChildren();
   els.digestQueue.replaceChildren();
@@ -443,7 +600,7 @@ function renderDigest() {
     appendListItem(els.digestMustRead, "暂无匹配论文");
     appendListItem(els.digestSignals, "等待新的机器人/具身智能论文");
     appendListItem(els.digestQueue, "稍后刷新或扩大时间范围");
-    state.digestMarkdown = buildDigestMarkdown([], ["等待新的机器人/具身智能论文"], ["稍后刷新或扩大时间范围"]);
+    state.digestMarkdown = buildDigestMarkdown([], ["等待新的机器人/具身智能论文"], ["稍后刷新或扩大时间范围"], brief);
     return;
   }
 
@@ -456,7 +613,7 @@ function renderDigest() {
   for (const item of queue) {
     appendListItem(els.digestQueue, item);
   }
-  state.digestMarkdown = buildDigestMarkdown(mustRead, signals, queue);
+  state.digestMarkdown = buildDigestMarkdown(mustRead, signals, queue, brief);
 }
 
 function applyFilters() {
@@ -485,6 +642,11 @@ function renderStats() {
   els.resultHint.textContent = state.hasMore
     ? `已加载 ${total} / ${available} 篇`
     : `${state.filtered.length} / ${total} 篇`;
+  if (!state.loading && els.loadStatus && !els.loadStatus.classList.contains("is-error")) {
+    els.loadStatus.classList.remove("is-idle");
+    setLoadProgress(loadedProgressPercent(), loadedProgressLabel());
+  }
+  renderRangeProgress();
   renderFeedStatus();
 }
 
@@ -530,6 +692,8 @@ function renderPapers(papers) {
     node.querySelector(".limits").textContent = paper.limitations || "待阅读原文确认。";
     renderMethods(node.querySelector(".method-list"), paper.methods || paper.keyword_matches || []);
     renderSignals(node.querySelector(".signal-list"), paper.industry_signals || []);
+    renderAffiliations(node.querySelector(".affiliation-list"), paper.affiliations || []);
+    renderExternalLinks(node.querySelector(".external-link-list"), paper.external_links || []);
 
     const favoriteButton = node.querySelector(".favorite-button");
     favoriteButton.textContent = paper.favorite ? "★" : "☆";
@@ -661,12 +825,25 @@ function normalizePaper(paper) {
     user_category: "未分类",
     status: "unread",
     notes: "",
+    comment: "",
+    doi: "",
+    affiliations: [],
+    external_links: [],
     industry_signals: [],
     industry_score: 0,
     industry_level: "archive",
     industry_label: "归档备查",
     ...paper,
   };
+}
+
+function normalizeRangeCounts(value) {
+  const counts = { 1: 0, 3: 0, 7: 0 };
+  for (const days of RANGE_OPTIONS) {
+    const raw = value?.[days] ?? value?.[String(days)];
+    counts[days] = Number.isFinite(Number(raw)) ? Number(raw) : 0;
+  }
+  return counts;
 }
 
 function mergePapers(nextPapers) {
@@ -698,9 +875,10 @@ function renderResponse(data, { append = false } = {}) {
   state.nextOffset = pagination.next_offset ?? state.papers.length;
   state.totalAvailable = pagination.total ?? state.papers.length;
   state.hasMore = Boolean(pagination.has_more);
+  state.rangeCounts = normalizeRangeCounts(data.range_counts);
 
-  if (!append || !state.dailyBrief) {
-    state.dailyBrief = data.daily_brief || "";
+  if (!append || !state.serverBrief) {
+    state.serverBrief = data.daily_brief || "";
   }
   if (append) {
     mergeThemes(data.themes || []);
@@ -708,7 +886,6 @@ function renderResponse(data, { append = false } = {}) {
     state.themes = data.themes || [];
   }
   state.generatedAt = data.generated_at || "";
-  els.dailyBrief.textContent = state.dailyBrief || "没有生成总览。";
   renderThemes(state.themes || []);
   els.sourceValue.textContent = data.source || "arXiv";
   els.timeValue.textContent = formatDate(data.generated_at);
@@ -853,6 +1030,8 @@ async function loadFeedPage({ refresh = false, append = false } = {}) {
     state.nextOffset = 0;
     state.totalAvailable = 0;
     state.hasMore = true;
+    state.serverBrief = "";
+    state.dailyBrief = "";
   }
   setLoading(true);
   let shouldPrefetch = false;

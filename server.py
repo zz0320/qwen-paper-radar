@@ -59,6 +59,107 @@ ARXIV_NAMESPACES = {
     "arxiv": "http://arxiv.org/schemas/atom",
 }
 
+URL_RE = re.compile(r"https?://[^\s<>()\[\]{}\"']+", re.IGNORECASE)
+TRAILING_URL_CHARS = ".,;:!?)]}'\""
+DATASET_DOMAINS = (
+    "huggingface.co/datasets",
+    "zenodo.org",
+    "figshare.com",
+    "kaggle.com",
+    "dataverse",
+    "osf.io",
+)
+PROJECT_DOMAINS = (
+    "github.io",
+    "sites.google.com",
+    "pages.dev",
+    "vercel.app",
+    "netlify.app",
+    "notion.site",
+)
+AFFILIATION_DOMAIN_MAP = {
+    "mit.edu": "MIT",
+    "stanford.edu": "Stanford University",
+    "berkeley.edu": "UC Berkeley",
+    "cmu.edu": "Carnegie Mellon University",
+    "gatech.edu": "Georgia Tech",
+    "princeton.edu": "Princeton University",
+    "harvard.edu": "Harvard University",
+    "columbia.edu": "Columbia University",
+    "cornell.edu": "Cornell University",
+    "ucla.edu": "UCLA",
+    "ucsd.edu": "UC San Diego",
+    "washington.edu": "University of Washington",
+    "umich.edu": "University of Michigan",
+    "ethz.ch": "ETH Zurich",
+    "epfl.ch": "EPFL",
+    "ox.ac.uk": "University of Oxford",
+    "cam.ac.uk": "University of Cambridge",
+    "imperial.ac.uk": "Imperial College London",
+    "nus.edu.sg": "National University of Singapore",
+    "ntu.edu.sg": "Nanyang Technological University",
+    "tsinghua.edu.cn": "Tsinghua University",
+    "pku.edu.cn": "Peking University",
+    "sjtu.edu.cn": "Shanghai Jiao Tong University",
+    "zju.edu.cn": "Zhejiang University",
+    "ustc.edu.cn": "University of Science and Technology of China",
+    "nvidia.com": "NVIDIA",
+    "research.google": "Google Research",
+    "deepmind.google": "Google DeepMind",
+    "microsoft.com": "Microsoft",
+    "meta.com": "Meta",
+    "apple.com": "Apple",
+    "amazon.science": "Amazon",
+}
+KNOWN_AFFILIATIONS = (
+    "Carnegie Mellon University",
+    "Stanford University",
+    "UC Berkeley",
+    "University of California, Berkeley",
+    "Massachusetts Institute of Technology",
+    "MIT",
+    "ETH Zurich",
+    "EPFL",
+    "Tsinghua University",
+    "Peking University",
+    "Shanghai Jiao Tong University",
+    "Zhejiang University",
+    "University of Science and Technology of China",
+    "National University of Singapore",
+    "Nanyang Technological University",
+    "University of Oxford",
+    "University of Cambridge",
+    "Imperial College London",
+    "University of Washington",
+    "University of Michigan",
+    "Georgia Tech",
+    "Google DeepMind",
+    "Google Research",
+    "Microsoft Research",
+    "NVIDIA",
+    "Meta AI",
+    "Amazon",
+    "OpenAI",
+)
+
+GITHUB_OWNER_AFFILIATIONS = {
+    "google-research": "Google Research",
+    "deepmind": "Google DeepMind",
+    "facebookresearch": "Meta AI",
+    "meta-llama": "Meta AI",
+    "microsoft": "Microsoft",
+    "microsoftresearch": "Microsoft Research",
+    "nvlabs": "NVIDIA",
+    "nvidia": "NVIDIA",
+    "openai": "OpenAI",
+    "stanfordvl": "Stanford University",
+    "stanford-iliad": "Stanford University",
+    "stanfordasl": "Stanford University",
+    "berkeleyautomation": "UC Berkeley",
+    "cmu-roboarch": "Carnegie Mellon University",
+    "mit-han-lab": "MIT",
+}
+
 CATEGORIES = ("cs.RO", "cs.AI", "cs.CV", "cs.LG", "stat.ML", "eess.SY")
 KEYWORDS = (
     "robot",
@@ -146,6 +247,10 @@ class Paper:
     primary_category: str
     arxiv_url: str
     pdf_url: str
+    comment: str
+    doi: str
+    external_links: list[dict[str, str]]
+    affiliations: list[str]
     keyword_matches: list[str]
     score: int
 
@@ -356,12 +461,195 @@ def arxiv_id_from_url(url: str) -> str:
     return url.rstrip("/").split("/")[-1]
 
 
+def clean_url(value: str) -> str:
+    return normalize_space(value).rstrip(TRAILING_URL_CHARS)
+
+
+def domain_from_url(url: str) -> str:
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return ""
+    domain = parsed.netloc.lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    return domain
+
+
+def path_from_url(url: str) -> str:
+    try:
+        return urllib.parse.urlparse(url).path or ""
+    except ValueError:
+        return ""
+
+
+def same_domain(domain: str, suffix: str) -> bool:
+    return domain == suffix or domain.endswith("." + suffix)
+
+
+def context_for_url(text: str, url: str, window: int = 72) -> str:
+    lower_text = text.lower()
+    lower_url = url.lower()
+    index = lower_text.find(lower_url)
+    if index < 0:
+        return ""
+    start = max(0, index - window)
+    end = min(len(text), index + len(url) + window)
+    return lower_text[start:end]
+
+
+def external_link_kind(url: str, context: str = "") -> tuple[str, str]:
+    domain = domain_from_url(url)
+    lower_url = url.lower()
+    lower_context = context.lower()
+    path = path_from_url(url).lower()
+
+    if same_domain(domain, "github.com"):
+        return "github", "GitHub"
+    if same_domain(domain, "gitlab.com"):
+        return "code", "代码"
+    if same_domain(domain, "huggingface.co"):
+        if path.startswith("/datasets/") or "dataset" in lower_context or "benchmark" in lower_context:
+            return "dataset", "数据"
+        if path.startswith("/spaces/"):
+            return "project", "项目"
+        return "huggingface", "HuggingFace"
+    if same_domain(domain, "doi.org"):
+        return "doi", "DOI"
+    if any(marker in lower_url for marker in DATASET_DOMAINS) or any(
+        token in lower_context for token in ("dataset", "benchmark", "data release")
+    ):
+        return "dataset", "数据"
+    if any(same_domain(domain, marker) for marker in PROJECT_DOMAINS) or any(
+        token in lower_context for token in ("project page", "project website", "homepage", "webpage", "website")
+    ):
+        return "project", "项目"
+    if any(token in lower_context for token in ("code", "repository", "repo", "implementation")):
+        return "code", "代码"
+    return "website", "网站"
+
+
+def is_internal_paper_url(url: str) -> bool:
+    domain = domain_from_url(url)
+    return same_domain(domain, "arxiv.org") or same_domain(domain, "export.arxiv.org")
+
+
+def append_unique(values: list[str], value: str, limit: int | None = None) -> None:
+    clean_value = normalize_space(value).strip(" ,;:()[]{}")
+    if not clean_value:
+        return
+    existing = {item.casefold() for item in values}
+    if clean_value.casefold() in existing:
+        return
+    if limit is not None and len(values) >= limit:
+        return
+    values.append(clean_value)
+
+
+def extract_external_links(texts: list[str], entry_urls: list[str] | None = None, doi: str = "") -> list[dict[str, str]]:
+    candidates: list[tuple[str, str]] = []
+    for text in texts:
+        if not text:
+            continue
+        for match in URL_RE.finditer(text):
+            url = clean_url(match.group(0))
+            if url:
+                candidates.append((url, context_for_url(text, url)))
+    for url in entry_urls or []:
+        clean = clean_url(url)
+        if clean:
+            candidates.append((clean, ""))
+    if doi:
+        doi_url = doi if doi.startswith("http") else f"https://doi.org/{doi}"
+        candidates.append((clean_url(doi_url), ""))
+
+    links: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for url, context in candidates:
+        if not url.startswith(("http://", "https://")):
+            continue
+        if is_internal_paper_url(url):
+            continue
+        domain = domain_from_url(url)
+        if not domain:
+            continue
+        key = url.rstrip("/").lower()
+        if key in seen:
+            continue
+        kind, label = external_link_kind(url, context)
+        links.append({"kind": kind, "label": label, "url": url, "domain": domain})
+        seen.add(key)
+        if len(links) >= 8:
+            break
+    return links
+
+
+def github_owner_from_url(url: str) -> str:
+    if not same_domain(domain_from_url(url), "github.com"):
+        return ""
+    parts = [part for part in path_from_url(url).split("/") if part]
+    return parts[0].lower() if parts else ""
+
+
+def affiliation_from_link(url: str) -> str:
+    domain = domain_from_url(url)
+    if not domain:
+        return ""
+
+    owner = github_owner_from_url(url)
+    if owner and owner in GITHUB_OWNER_AFFILIATIONS:
+        return GITHUB_OWNER_AFFILIATIONS[owner]
+
+    for suffix, affiliation in AFFILIATION_DOMAIN_MAP.items():
+        if same_domain(domain, suffix):
+            return affiliation
+    return ""
+
+
+def extract_affiliations(texts: list[str], links: list[dict[str, str]] | None = None) -> list[str]:
+    combined = " ".join(text for text in texts if text)
+    affiliations: list[str] = []
+
+    for affiliation in KNOWN_AFFILIATIONS:
+        if re.search(rf"\b{re.escape(affiliation)}\b", combined, re.IGNORECASE):
+            append_unique(affiliations, affiliation, limit=6)
+
+    patterns = (
+        r"\b(?:University|Institute|School|College) of [A-Z][A-Za-z&.'-]+(?:\s+[A-Z][A-Za-z&.'-]+){0,5}\b",
+        r"\b[A-Z][A-Za-z&.'-]+(?:\s+[A-Z][A-Za-z&.'-]+){0,5}\s+(?:University|Institute|Laboratory|Lab|College|School)\b",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, combined):
+            append_unique(affiliations, match.group(0), limit=6)
+
+    for link in links or []:
+        if not isinstance(link, dict):
+            continue
+        affiliation = affiliation_from_link(link.get("url", ""))
+        append_unique(affiliations, affiliation, limit=6)
+    return affiliations[:6]
+
+
+def enrich_paper_metadata(paper: dict[str, Any]) -> dict[str, Any]:
+    item = dict(paper)
+    item.setdefault("comment", "")
+    item.setdefault("doi", "")
+    texts = [item.get("title", ""), item.get("abstract", ""), item.get("comment", "")]
+    if not isinstance(item.get("external_links"), list) or not item.get("external_links"):
+        item["external_links"] = extract_external_links(texts, [item.get("arxiv_url", ""), item.get("pdf_url", "")], item.get("doi", ""))
+    if not isinstance(item.get("affiliations"), list) or not item.get("affiliations"):
+        item["affiliations"] = extract_affiliations(texts, item.get("external_links", []))
+    return item
+
+
 def paper_from_entry(entry: ET.Element) -> Paper | None:
     title = normalize_space(entry.findtext("atom:title", default="", namespaces=ARXIV_NAMESPACES))
     abstract = normalize_space(entry.findtext("atom:summary", default="", namespaces=ARXIV_NAMESPACES))
     link = normalize_space(entry.findtext("atom:id", default="", namespaces=ARXIV_NAMESPACES))
     published = normalize_space(entry.findtext("atom:published", default="", namespaces=ARXIV_NAMESPACES))
     updated = normalize_space(entry.findtext("atom:updated", default="", namespaces=ARXIV_NAMESPACES))
+    comment = normalize_space(entry.findtext("arxiv:comment", default="", namespaces=ARXIV_NAMESPACES))
+    doi = normalize_space(entry.findtext("arxiv:doi", default="", namespaces=ARXIV_NAMESPACES))
     if not title or not link or not published:
         return None
 
@@ -380,12 +668,16 @@ def paper_from_entry(entry: ET.Element) -> Paper | None:
     primary_category = primary.attrib.get("term", categories[0] if categories else "")
 
     pdf_url = ""
+    entry_urls = [link]
     for link_node in entry.findall("atom:link", ARXIV_NAMESPACES):
-        if link_node.attrib.get("title") == "pdf":
-            pdf_url = link_node.attrib.get("href", "")
-            break
+        href = link_node.attrib.get("href", "")
+        if href:
+            entry_urls.append(href)
+        if link_node.attrib.get("title") == "pdf" and href:
+            pdf_url = href
     if not pdf_url and link:
         pdf_url = link.replace("/abs/", "/pdf/") + ".pdf"
+        entry_urls.append(pdf_url)
 
     haystack = f"{title} {abstract}".lower()
     matches = sorted({keyword for keyword in KEYWORDS if keyword in haystack})
@@ -396,6 +688,9 @@ def paper_from_entry(entry: ET.Element) -> Paper | None:
     score = len(matches) + (4 if is_robotics_category else 0)
     if any(term in haystack for term in ("humanoid", "manipulation", "embodied", "vla")):
         score += 2
+
+    external_links = extract_external_links([title, abstract, comment], entry_urls, doi)
+    affiliations = extract_affiliations([title, abstract, comment], external_links)
 
     return Paper(
         id=arxiv_id_from_url(link),
@@ -408,6 +703,10 @@ def paper_from_entry(entry: ET.Element) -> Paper | None:
         primary_category=primary_category,
         arxiv_url=link,
         pdf_url=pdf_url,
+        comment=comment,
+        doi=doi,
+        external_links=external_links,
+        affiliations=affiliations,
         keyword_matches=matches,
         score=score,
     )
@@ -485,7 +784,8 @@ def fetch_recent_papers(days: int, refresh: bool = False, max_results: int = ARX
     ) as exc:
         raise RuntimeError(f"arXiv 抓取失败：{exc}") from exc
 
-    for paper in papers:
+    for raw_paper in papers:
+        paper = enrich_paper_metadata(raw_paper)
         try:
             published_at = parse_arxiv_datetime(paper["published"])
         except ValueError:
@@ -502,6 +802,26 @@ def fetch_recent_papers(days: int, refresh: bool = False, max_results: int = ARX
         reverse=True,
     )
     return sorted_papers
+
+
+def filter_papers_by_days(papers: list[dict[str, Any]], days: int) -> list[dict[str, Any]]:
+    cutoff = utc_now() - timedelta(days=days)
+    filtered = []
+    for paper in papers:
+        try:
+            published_at = parse_arxiv_datetime(paper["published"])
+        except (KeyError, ValueError):
+            continue
+        if published_at >= cutoff:
+            filtered.append(paper)
+    return filtered
+
+
+def range_counts_from_papers(papers: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        str(days): len(filter_papers_by_days(papers, days))
+        for days in (1, 3, 7)
+    }
 
 
 def qwen_config() -> dict[str, Any]:
@@ -533,6 +853,7 @@ def qwen_cache_key(
 ) -> str:
     seed = json.dumps(
         {
+            "prompt_version": 2,
             "model": model,
             "enable_thinking": enable_thinking,
             "thinking_budget": thinking_budget if enable_thinking else None,
@@ -582,6 +903,17 @@ def build_qwen_prompt(papers: list[dict[str, Any]]) -> str:
                 "published": paper["published"],
                 "categories": paper["categories"],
                 "keywords": paper["keyword_matches"],
+                "comment": paper.get("comment", "")[:400],
+                "affiliations": paper.get("affiliations", [])[:6],
+                "external_links": [
+                    {
+                        "label": link.get("label", ""),
+                        "kind": link.get("kind", ""),
+                        "url": link.get("url", ""),
+                    }
+                    for link in paper.get("external_links", [])[:5]
+                    if isinstance(link, dict)
+                ],
                 "abstract": paper["abstract"][:1600],
             }
         )
@@ -596,7 +928,7 @@ def build_qwen_prompt(papers: list[dict[str, Any]]) -> str:
         "\"methods\":[\"方法点1\",\"方法点2\"],"
         "\"limitations\":\"局限或待读点\","
         "\"read_priority\":\"high|medium|low\"}]}。"
-        "优先指出工程可用性、机器人系统价值和与具身智能的关系。\n\n"
+        "优先指出工程可用性、机器人系统价值、开源/数据/项目页信号，以及与具身智能的关系。\n\n"
         + json.dumps(compact, ensure_ascii=False)
     )
 
@@ -732,8 +1064,16 @@ def derive_industry_signals(paper: dict[str, Any]) -> dict[str, Any]:
         [
             paper.get("title", ""),
             paper.get("abstract", ""),
+            paper.get("comment", ""),
+            paper.get("doi", ""),
             " ".join(paper.get("categories", [])),
             " ".join(paper.get("keyword_matches", [])),
+            " ".join(paper.get("affiliations", [])),
+            " ".join(
+                f"{link.get('label', '')} {link.get('url', '')}"
+                for link in paper.get("external_links", [])
+                if isinstance(link, dict)
+            ),
             paper.get("one_line", ""),
             paper.get("why_it_matters", ""),
         ]
@@ -881,7 +1221,10 @@ class AppHandler(SimpleHTTPRequestHandler):
         want_qwen = first(params, "qwen", "1") != "0"
 
         try:
-            all_papers = rank_feed_papers(fetch_recent_papers(days=days, refresh=refresh))
+            window_days = max(days, 7)
+            all_window_papers = rank_feed_papers(fetch_recent_papers(days=window_days, refresh=refresh))
+            range_counts = range_counts_from_papers(all_window_papers)
+            all_papers = filter_papers_by_days(all_window_papers, days)
             total = len(all_papers)
             papers = all_papers[offset : offset + page_size]
             next_offset = offset + len(papers)
@@ -902,6 +1245,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "generated_at": utc_now().isoformat(),
                     "source": "arXiv",
                     "filters": {"days": days, "offset": offset, "page_size": page_size, "categories": CATEGORIES},
+                    "range_counts": range_counts,
                     "pagination": {
                         "offset": offset,
                         "page_size": page_size,
