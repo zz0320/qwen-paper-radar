@@ -1,11 +1,16 @@
 const DEFAULT_CATEGORIES = [
   "未分类",
-  "VLA/世界模型",
-  "操作/抓取",
-  "运动控制",
-  "导航/SLAM",
-  "仿真/数据",
-  "群体/系统",
+  "本体/硬件",
+  "预训练",
+  "后训练",
+  "RL/DAgger",
+  "具身数据",
+  "具身推理",
+  "移动操作",
+  "灵巧操作",
+  "灵巧手",
+  "仿真/Sim2Real",
+  "评测/Benchmark",
   "待复现",
 ];
 
@@ -36,7 +41,7 @@ const state = {
   digestMarkdown: "",
   view: "all",
   category: "all",
-  sort: "priority",
+  sort: "industry",
   search: "",
 };
 
@@ -151,6 +156,17 @@ function renderMethods(container, methods) {
   }
 }
 
+function renderSignals(container, signals) {
+  container.replaceChildren();
+  const values = (signals || []).filter(Boolean).slice(0, 6);
+  for (const signal of values) {
+    const item = document.createElement("span");
+    item.className = "signal";
+    item.textContent = signal;
+    container.append(item);
+  }
+}
+
 function searchableText(paper) {
   return [
     paper.title,
@@ -160,6 +176,9 @@ function searchableText(paper) {
     paper.limitations,
     (paper.methods || []).join(" "),
     (paper.keyword_matches || []).join(" "),
+    (paper.industry_signals || []).join(" "),
+    paper.industry_label,
+    paper.industry_level,
     paper.abstract,
     paper.user_category,
     paper.notes,
@@ -171,6 +190,7 @@ function searchableText(paper) {
 
 function matchesView(paper) {
   if (state.view === "favorites") return paper.favorite;
+  if (state.view === "core") return paper.industry_level === "core" || paper.industry_level === "watch";
   if (state.view === "high") return paper.read_priority === "high";
   if (state.view === "unread") return paper.status === "unread";
   if (state.view === "reading") return paper.status === "reading";
@@ -180,6 +200,9 @@ function matchesView(paper) {
 }
 
 function comparePapers(a, b) {
+  if (state.sort === "industry") {
+    return compareByIndustry(a, b);
+  }
   if (state.sort === "date") {
     return new Date(b.published || 0) - new Date(a.published || 0);
   }
@@ -192,9 +215,17 @@ function comparePapers(a, b) {
   return compareByPriority(a, b);
 }
 
+function compareByIndustry(a, b) {
+  return (
+    (b.industry_score || 0) - (a.industry_score || 0) ||
+    compareByPriority(a, b)
+  );
+}
+
 function compareByPriority(a, b) {
   return (
     (PRIORITY_WEIGHT[b.read_priority] || 0) - (PRIORITY_WEIGHT[a.read_priority] || 0) ||
+    (b.industry_score || 0) - (a.industry_score || 0) ||
     Number(b.favorite) - Number(a.favorite) ||
     (b.score || 0) - (a.score || 0) ||
     new Date(b.published || 0) - new Date(a.published || 0)
@@ -209,18 +240,16 @@ function appendListItem(list, text) {
 
 function topPapers(count = 3) {
   return [...state.papers]
-    .sort(compareByPriority)
+    .sort(compareByIndustry)
     .slice(0, count);
 }
 
-function methodSignals() {
+function countedSignals(source) {
   const counts = new Map();
-  for (const paper of state.papers) {
-    for (const method of paper.methods || paper.keyword_matches || []) {
-      const key = String(method).trim();
-      if (!key) continue;
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
+  for (const value of source) {
+    const key = String(value).trim();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
   }
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -228,7 +257,23 @@ function methodSignals() {
     .map(([name, count]) => `${name} (${count})`);
 }
 
+function industrySignals() {
+  return countedSignals(state.papers.flatMap((paper) => paper.industry_signals || []));
+}
+
+function methodSignals() {
+  const source = [];
+  for (const paper of state.papers) {
+    for (const method of paper.methods || paper.keyword_matches || []) {
+      source.push(method);
+    }
+  }
+  return countedSignals(source);
+}
+
 function digestSignals() {
+  const industry = industrySignals();
+  if (industry.length) return industry;
   const themes = (state.themes || []).filter(Boolean).slice(0, 4);
   if (themes.length) return themes;
   return methodSignals();
@@ -236,12 +281,13 @@ function digestSignals() {
 
 function digestQueue() {
   const highCount = state.papers.filter((paper) => paper.read_priority === "high").length;
+  const coreCount = state.papers.filter((paper) => paper.industry_level === "core" || paper.industry_level === "watch").length;
   const favorites = state.papers.filter((paper) => paper.favorite).length;
   const unread = state.papers.filter((paper) => paper.status === "unread").length;
   const reading = state.papers.filter((paper) => paper.status === "reading").length;
   const notes = state.papers.filter((paper) => (paper.notes || "").trim()).length;
   return [
-    `先读 ${highCount} 篇高优先级论文，重点确认实验设置和代码可用性`,
+    `先读 ${coreCount || highCount} 篇核心/重点论文，重点确认真机、数据、开源和可复现性`,
     favorites ? `复查 ${favorites} 篇已收藏论文，补充复现或项目关联笔记` : `从必读列表中挑 1-2 篇加入收藏或待复现`,
     reading ? `${reading} 篇在读论文需要收口结论` : `${unread} 篇仍未读，可按分类分批处理`,
     notes ? `${notes} 篇已有笔记，适合沉淀到周报或项目 backlog` : `读完后在卡片里补一条笔记，方便后续检索`,
@@ -260,7 +306,9 @@ function buildDigestMarkdown(mustRead, signals, queue) {
   if (mustRead.length) {
     mustRead.forEach((paper, index) => {
       lines.push(`${index + 1}. [${paper.title}](${paper.arxiv_url})`);
+      const signalText = (paper.industry_signals || []).slice(0, 4).join("、") || "待补充产业信号";
       lines.push(`   - ${paper.one_line || paper.why_it_matters || "待阅读原文确认。"}`);
+      lines.push(`   - 产业信号：${paper.industry_label || "快速扫读"}｜${signalText}`);
     });
   } else {
     lines.push("- 暂无匹配论文。");
@@ -322,7 +370,7 @@ function applyFilters() {
 function renderStats() {
   const total = state.papers.length;
   const favorites = state.papers.filter((paper) => paper.favorite).length;
-  const high = state.papers.filter((paper) => paper.read_priority === "high").length;
+  const high = state.papers.filter((paper) => paper.industry_level === "core" || paper.industry_level === "watch").length;
   const tracked = state.papers.filter((paper) => paper.favorite || paper.status !== "unread" || paper.user_category !== "未分类" || paper.notes).length;
   els.countValue.textContent = String(total);
   els.visibleValue.textContent = String(state.filtered.length);
@@ -359,6 +407,9 @@ function renderPapers(papers) {
     const priorityEl = node.querySelector(".priority");
     priorityEl.className = `priority priority-${priority}`;
     priorityEl.textContent = priorityLabel(priority);
+    const industryEl = node.querySelector(".industry-level");
+    industryEl.className = `industry-level industry-${paper.industry_level || "scan"}`;
+    industryEl.textContent = paper.industry_label || "快速扫读";
     node.querySelector(".category").textContent = paper.primary_category || "arXiv";
     node.querySelector(".user-category-chip").textContent = paper.user_category || "未分类";
     node.querySelector(".date").textContent = formatDate(paper.published);
@@ -368,6 +419,7 @@ function renderPapers(papers) {
     node.querySelector(".why").textContent = paper.why_it_matters || "待 Qwen 梳理。";
     node.querySelector(".limits").textContent = paper.limitations || "待阅读原文确认。";
     renderMethods(node.querySelector(".method-list"), paper.methods || paper.keyword_matches || []);
+    renderSignals(node.querySelector(".signal-list"), paper.industry_signals || []);
 
     const favoriteButton = node.querySelector(".favorite-button");
     favoriteButton.textContent = paper.favorite ? "★" : "☆";
@@ -466,6 +518,10 @@ function renderResponse(data) {
     user_category: "未分类",
     status: "unread",
     notes: "",
+    industry_signals: [],
+    industry_score: 0,
+    industry_level: "archive",
+    industry_label: "归档备查",
     ...paper,
   }));
 
@@ -623,10 +679,10 @@ els.sortSelect.addEventListener("change", () => {
 els.clearFiltersButton.addEventListener("click", () => {
   state.search = "";
   state.category = "all";
-  state.sort = "priority";
   state.view = "all";
   els.searchInput.value = "";
-  els.sortSelect.value = "priority";
+  state.sort = "industry";
+  els.sortSelect.value = "industry";
   els.categoryFilter.value = "all";
   document.querySelectorAll("[data-view]").forEach((item) => item.classList.toggle("active", item.dataset.view === "all"));
   applyFilters();

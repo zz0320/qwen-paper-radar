@@ -87,6 +87,7 @@ h1 {
 .paper-kicker,
 .theme-list,
 .method-list,
+.signal-list,
 .filter-chips,
 .filter-tools,
 .paper-head,
@@ -105,10 +106,12 @@ h1 {
 .status,
 .mode-badge,
 .priority,
+.industry-level,
 .category,
 .date,
 .theme,
 .method,
+.signal,
 .user-category-chip {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -593,10 +596,46 @@ h1 {
   gap: 7px;
 }
 
+.signal-list {
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+
 .method {
   border-color: rgba(15, 118, 110, 0.24);
   background: var(--teal-soft);
   color: var(--teal);
+}
+
+.signal {
+  border-color: rgba(49, 95, 159, 0.22);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.industry-core {
+  border-color: rgba(180, 35, 58, 0.28);
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+
+.industry-watch {
+  border-color: rgba(183, 121, 31, 0.28);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.industry-scan {
+  border-color: rgba(49, 95, 159, 0.22);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.industry-archive {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--muted);
 }
 
 .paper-side {

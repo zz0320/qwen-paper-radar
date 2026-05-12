@@ -67,7 +67,7 @@
             <strong id="favoriteValue">-</strong>
           </div>
           <div>
-            <span class="meta-label">高优先级</span>
+            <span class="meta-label">核心关注</span>
             <strong id="highValue">-</strong>
           </div>
         </div>
@@ -108,6 +108,7 @@
       <section class="filter-panel" aria-label="论文筛选">
         <div class="filter-chips" role="group" aria-label="视图">
           <button class="filter-chip active" type="button" data-view="all">全部</button>
+          <button class="filter-chip" type="button" data-view="core">核心关注</button>
           <button class="filter-chip" type="button" data-view="favorites">收藏</button>
           <button class="filter-chip" type="button" data-view="high">高优先级</button>
           <button class="filter-chip" type="button" data-view="unread">未读</button>
@@ -124,6 +125,7 @@
           <label class="select-field">
             <span>排序</span>
             <select id="sortSelect">
+              <option value="industry">产业相关度</option>
               <option value="priority">优先级</option>
               <option value="date">最新发布</option>
               <option value="favorite">收藏优先</option>
@@ -163,6 +165,7 @@
         <div class="paper-head">
           <div class="paper-kicker">
             <span class="priority"></span>
+            <span class="industry-level"></span>
             <span class="category"></span>
             <span class="user-category-chip"></span>
             <span class="date"></span>
@@ -186,6 +189,7 @@
               </div>
             </dl>
             <div class="method-list"></div>
+            <div class="signal-list"></div>
           </div>
 
           <aside class="paper-side">

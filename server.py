@@ -69,15 +69,41 @@ KEYWORDS = (
 
 USER_CATEGORIES = (
     "未分类",
-    "VLA/世界模型",
-    "操作/抓取",
-    "运动控制",
-    "导航/SLAM",
-    "仿真/数据",
-    "群体/系统",
+    "本体/硬件",
+    "预训练",
+    "后训练",
+    "RL/DAgger",
+    "具身数据",
+    "具身推理",
+    "移动操作",
+    "灵巧操作",
+    "灵巧手",
+    "仿真/Sim2Real",
+    "评测/Benchmark",
     "待复现",
 )
 STATUS_OPTIONS = ("unread", "reading", "done", "skip")
+LEGACY_CATEGORY_MAP = {
+    "VLA/世界模型": "预训练",
+    "操作/抓取": "灵巧操作",
+    "运动控制": "移动操作",
+    "导航/SLAM": "移动操作",
+    "仿真/数据": "仿真/Sim2Real",
+    "群体/系统": "具身推理",
+}
+
+INDUSTRY_SIGNAL_RULES = (
+    ("真机", ("real-world", "real robot", "physical robot", "hardware", "onboard", "deployment", "deployed", "field", "in-the-wild"), 3),
+    ("开源", ("open-source", "github", "code is available", "code, evaluation", "huggingface", "released at", "project page"), 2),
+    ("具身数据", ("dataset", "demonstration", "episodes", "data collection", "teleoperation", "lerobot", "umi", "ego", "open x-embodiment"), 3),
+    ("DAgger/RL", ("dagger", "reinforcement learning", "reward", "policy optimization", "online correction"), 3),
+    ("移动操作", ("mobile manipulator", "mobile robot", "navigation", "slam", "relocalization", "locomotion", "base-arm", "uav"), 3),
+    ("灵巧操作", ("dexterous", "in-hand", "bimanual", "grasp", "manipulation", "contact-rich", "folding", "cloth"), 3),
+    ("灵巧手", ("dexterous hand", "multifinger", "multi-finger", "allegro", "shadow hand", "hand-object", "tactile"), 4),
+    ("具身模型", ("vision-language-action", "vla", "world action model", "foundation model", "flow matching", "diffusion policy", "policy learning"), 2),
+    ("Sim2Real", ("sim-to-real", "sim2real", "real2sim", "simulation", "domain randomization", "isaac", "mujoco", "digital twin"), 2),
+    ("评测", ("benchmark", "evaluation", "metric", "suite", "protocol", "baseline", "ood", "generalization"), 2),
+)
 
 
 @dataclass
@@ -130,7 +156,7 @@ def request_text(url: str, timeout: int = 30, attempts: int = 3) -> str:
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "qwen-embodied-paper-radar/0.1 (+local research assistant)",
+            "User-Agent": "embodied-zhidu/0.2 (+local research assistant)",
         },
     )
     last_error: Exception | None = None
@@ -207,6 +233,7 @@ def normalize_status(value: Any) -> str:
 
 
 def normalize_user_category(value: Any) -> str:
+    value = LEGACY_CATEGORY_MAP.get(value, value)
     return value if value in USER_CATEGORIES else "未分类"
 
 
@@ -454,7 +481,7 @@ def qwen_config() -> dict[str, Any]:
     model = os.getenv("QWEN_MODEL", "qwen3.6-max-preview")
     fallback_models = [
         item.strip()
-        for item in os.getenv("QWEN_FALLBACK_MODELS", "qwen3-max,qwen-max-latest").split(",")
+        for item in os.getenv("QWEN_FALLBACK_MODELS", "qwen3-max,qwen3-max-2026-01-23").split(",")
         if item.strip()
     ]
     return {
@@ -665,6 +692,51 @@ def fallback_summary(papers: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def derive_industry_signals(paper: dict[str, Any]) -> dict[str, Any]:
+    text = " ".join(
+        [
+            paper.get("title", ""),
+            paper.get("abstract", ""),
+            " ".join(paper.get("categories", [])),
+            " ".join(paper.get("keyword_matches", [])),
+            paper.get("one_line", ""),
+            paper.get("why_it_matters", ""),
+        ]
+    ).lower()
+
+    signals = []
+    score = 0
+    for label, terms, weight in INDUSTRY_SIGNAL_RULES:
+        if any(term in text for term in terms):
+            signals.append(label)
+            score += weight
+
+    if paper.get("read_priority") == "high":
+        score += 2
+    if paper.get("score", 0) >= 8:
+        score += 1
+
+    if score >= 11:
+        level = "core"
+        label = "核心关注"
+    elif score >= 7:
+        level = "watch"
+        label = "重点跟踪"
+    elif score >= 4:
+        level = "scan"
+        label = "快速扫读"
+    else:
+        level = "archive"
+        label = "归档备查"
+
+    return {
+        "industry_signals": signals[:6],
+        "industry_score": score,
+        "industry_level": level,
+        "industry_label": label,
+    }
+
+
 def merge_summaries(papers: list[dict[str, Any]], summary: dict[str, Any]) -> list[dict[str, Any]]:
     by_id = {item.get("id"): item for item in summary.get("papers", []) if isinstance(item, dict)}
     fallback_by_id = {
@@ -686,6 +758,7 @@ def merge_summaries(papers: list[dict[str, Any]], summary: dict[str, Any]) -> li
                 "read_priority": ai.get("read_priority") or fallback.get("read_priority", "medium"),
             }
         )
+        item.update(derive_industry_signals(item))
         merged.append(item)
     return merged
 
