@@ -5,7 +5,7 @@
 ## 功能
 
 - 每日/近 3 天/近 7 天机器人与具身智能论文速览
-- 像信息流一样下滑自动加载，不需要手动限定文章数量
+- 像信息流一样下滑自动加载，每批 5 篇并预取下一批
 - Qwen 中文总览、主题提炼、单篇论文价值和局限总结
 - 日报式速览，自动生成今日结论、必读论文、方向信号和阅读队列
 - 一键复制 Markdown 速览，方便发到群、周报或笔记系统
@@ -55,6 +55,17 @@ export QWEN_MODEL="qwen3.6-max-preview"
 export QWEN_ENABLE_THINKING="1"
 python3 server.py
 ```
+
+也可以在项目根目录创建本地 `.env` 文件，服务启动时会自动读取：
+
+```text
+DASHSCOPE_API_KEY=你的 DashScope API Key
+QWEN_MODEL=qwen3.6-max-preview
+QWEN_ENABLE_THINKING=1
+QWEN_THINKING_BUDGET=1024
+```
+
+`.env` 已加入 `.gitignore`，不会提交到 GitHub。
 
 默认调用 DashScope OpenAI 兼容接口：
 

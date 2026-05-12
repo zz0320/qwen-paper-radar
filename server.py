@@ -26,6 +26,32 @@ CACHE_DIR = ROOT / ".cache"
 CACHE_DIR.mkdir(exist_ok=True)
 DATA_DIR = ROOT / ".data"
 LIBRARY_PATH = DATA_DIR / "library.json"
+ENV_PATH = ROOT / ".env"
+
+
+def load_env_file(path: Path = ENV_PATH) -> None:
+    if not path.exists():
+        return
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("export "):
+            stripped = stripped[len("export ") :].strip()
+        key, separator, value = stripped.partition("=")
+        if not separator:
+            continue
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file()
 
 ARXIV_API = "http://export.arxiv.org/api/query"
 ARXIV_NAMESPACES = {
@@ -84,7 +110,7 @@ USER_CATEGORIES = (
 )
 STATUS_OPTIONS = ("unread", "reading", "done", "skip")
 ARXIV_POOL_SIZE = 250
-DEFAULT_FEED_PAGE_SIZE = 12
+DEFAULT_FEED_PAGE_SIZE = 5
 LEGACY_CATEGORY_MAP = {
     "VLA/世界模型": "预训练",
     "操作/抓取": "灵巧操作",
@@ -499,11 +525,17 @@ def qwen_config() -> dict[str, Any]:
     }
 
 
-def qwen_cache_key(papers: list[dict[str, Any]], model: str, enable_thinking: bool = False) -> str:
+def qwen_cache_key(
+    papers: list[dict[str, Any]],
+    model: str,
+    enable_thinking: bool = False,
+    thinking_budget: int | None = None,
+) -> str:
     seed = json.dumps(
         {
             "model": model,
             "enable_thinking": enable_thinking,
+            "thinking_budget": thinking_budget if enable_thinking else None,
             "papers": [
                 {
                     "id": paper["id"],
@@ -592,6 +624,7 @@ def summarize_with_qwen(papers: list[dict[str, Any]], refresh: bool = False) -> 
         "model": config["model"],
         "attempted_models": [],
         "enable_thinking": config["enable_thinking"],
+        "thinking_budget": config["thinking_budget"],
         "error": None,
     }
     if not papers:
@@ -599,7 +632,7 @@ def summarize_with_qwen(papers: list[dict[str, Any]], refresh: bool = False) -> 
     if not config["api_key"]:
         return fallback_summary(papers), meta
 
-    cache_name = qwen_cache_key(papers, config["model"], config["enable_thinking"])
+    cache_name = qwen_cache_key(papers, config["model"], config["enable_thinking"], config["thinking_budget"])
     if not refresh:
         cached = cache_get(cache_name, max_age_seconds=60 * 60 * 12)
         if cached is not None:
@@ -637,7 +670,7 @@ def summarize_with_qwen(papers: list[dict[str, Any]], refresh: bool = False) -> 
             data = request_json(config["url"], body, headers)
             content = data["choices"][0]["message"]["content"]
             summary = extract_json_object(content)
-            cache_set(qwen_cache_key(papers, model, enable_thinking), summary)
+            cache_set(qwen_cache_key(papers, model, enable_thinking, config["thinking_budget"]), summary)
             meta["used"] = True
             meta["cached"] = False
             meta["model"] = model
@@ -841,7 +874,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         page_size = parse_int(
             first(params, "page_size") or first(params, "limit"),
             default=DEFAULT_FEED_PAGE_SIZE,
-            minimum=6,
+            minimum=5,
             maximum=24,
         )
         refresh = first(params, "refresh") == "1"

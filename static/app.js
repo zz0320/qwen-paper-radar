@@ -29,10 +29,13 @@ const PRIORITY_WEIGHT = {
 
 const state = {
   days: 7,
-  pageSize: 12,
+  pageSize: 5,
   nextOffset: 0,
   totalAvailable: 0,
   hasMore: true,
+  prefetchedPage: null,
+  prefetchPromise: null,
+  prefetchOffset: null,
   qwen: true,
   loading: false,
   papers: [],
@@ -498,7 +501,13 @@ function renderFeedStatus() {
   els.feedSentinel.classList.remove("is-hidden");
   if (state.hasMore) {
     els.feedSentinel.classList.remove("is-done");
-    els.feedStatus.textContent = "继续下滑加载更多论文";
+    if (state.prefetchedPage) {
+      els.feedStatus.textContent = `下一批 ${state.pageSize} 篇已预取，下滑即看`;
+    } else if (state.prefetchPromise) {
+      els.feedStatus.textContent = `正在预取下一批 ${state.pageSize} 篇...`;
+    } else {
+      els.feedStatus.textContent = `继续下滑加载更多论文，每批 ${state.pageSize} 篇`;
+    }
   } else {
     els.feedSentinel.classList.add("is-done");
     els.feedStatus.textContent = "当前时间范围已全部加载";
@@ -693,12 +702,69 @@ async function loadHealth() {
 }
 
 async function loadPapers({ refresh = false } = {}) {
+  resetPrefetch();
   return loadFeedPage({ refresh, append: false });
 }
 
 async function loadNextPage() {
   if (!state.hasMore || state.loading) return;
+  const offset = state.nextOffset;
+  if (state.prefetchedPage && state.prefetchedPage.offset === offset) {
+    const data = state.prefetchedPage.data;
+    state.prefetchedPage = null;
+    renderResponse(data, { append: true });
+    prefetchNextPage();
+    return;
+  }
   return loadFeedPage({ append: true });
+}
+
+function resetPrefetch() {
+  state.prefetchedPage = null;
+  state.prefetchPromise = null;
+  state.prefetchOffset = null;
+}
+
+function feedParams({ offset, refresh = false } = {}) {
+  return new URLSearchParams({
+    days: String(state.days),
+    offset: String(offset || 0),
+    page_size: String(state.pageSize),
+    qwen: state.qwen ? "1" : "0",
+    refresh: refresh ? "1" : "0",
+  });
+}
+
+async function fetchFeedPage({ offset, refresh = false } = {}) {
+  const params = feedParams({ offset, refresh });
+  const response = await fetch(`/api/papers?${params.toString()}`);
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "论文接口请求失败");
+  }
+  return data;
+}
+
+function prefetchNextPage() {
+  if (!state.hasMore || state.loading || state.prefetchPromise) return;
+  const offset = state.nextOffset;
+  if (state.prefetchedPage && state.prefetchedPage.offset === offset) return;
+  state.prefetchOffset = offset;
+  state.prefetchPromise = fetchFeedPage({ offset })
+    .then((data) => {
+      if (state.nextOffset === offset && data?.pagination?.offset === offset) {
+        state.prefetchedPage = { offset, data };
+      }
+    })
+    .catch((error) => {
+      console.warn("Paper prefetch failed:", error);
+    })
+    .finally(() => {
+      state.prefetchPromise = null;
+      state.prefetchOffset = null;
+      renderFeedStatus();
+    });
+  renderFeedStatus();
 }
 
 async function loadFeedPage({ refresh = false, append = false } = {}) {
@@ -709,21 +775,12 @@ async function loadFeedPage({ refresh = false, append = false } = {}) {
     state.hasMore = true;
   }
   setLoading(true);
-  const params = new URLSearchParams({
-    days: String(state.days),
-    offset: String(append ? state.nextOffset : 0),
-    page_size: String(state.pageSize),
-    qwen: state.qwen ? "1" : "0",
-    refresh: refresh ? "1" : "0",
-  });
+  let shouldPrefetch = false;
 
   try {
-    const response = await fetch(`/api/papers?${params.toString()}`);
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || "论文接口请求失败");
-    }
+    const data = await fetchFeedPage({ offset: append ? state.nextOffset : 0, refresh });
     renderResponse(data, { append });
+    shouldPrefetch = true;
   } catch (error) {
     setStatus("status-error", "抓取失败");
     if (!append) {
@@ -737,6 +794,9 @@ async function loadFeedPage({ refresh = false, append = false } = {}) {
     }
   } finally {
     setLoading(false);
+    if (shouldPrefetch) {
+      prefetchNextPage();
+    }
   }
 }
 
@@ -760,6 +820,7 @@ document.querySelectorAll("[data-view]").forEach((button) => {
 
 els.qwenToggle.addEventListener("change", () => {
   state.qwen = els.qwenToggle.checked;
+  resetPrefetch();
   loadPapers();
 });
 
