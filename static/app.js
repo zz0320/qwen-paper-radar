@@ -60,6 +60,8 @@ const els = {
   clearFiltersButton: document.querySelector("#clearFiltersButton"),
   copyDigestButton: document.querySelector("#copyDigestButton"),
   copyDigestStatus: document.querySelector("#copyDigestStatus"),
+  briefScope: document.querySelector("#briefScope"),
+  digestTitle: document.querySelector("#digestTitle"),
   digestDate: document.querySelector("#digestDate"),
   digestLead: document.querySelector("#digestLead"),
   digestMustRead: document.querySelector("#digestMustRead"),
@@ -100,6 +102,19 @@ function formatReportDate(value) {
     day: "2-digit",
     weekday: "short",
   }).format(date);
+}
+
+function rangeLabel(days = state.days) {
+  if (Number(days) === 1) return "今日";
+  return `近 ${days} 天`;
+}
+
+function rangeSummaryLabel(days = state.days) {
+  return `${rangeLabel(days)}总览`;
+}
+
+function rangeDigestTitle(days = state.days) {
+  return `${rangeLabel(days)}阅读简报`;
 }
 
 function priorityLabel(value) {
@@ -285,6 +300,7 @@ function digestSignals() {
 }
 
 function digestQueue() {
+  const scope = rangeLabel();
   const highCount = state.papers.filter((paper) => paper.read_priority === "high").length;
   const coreCount = state.papers.filter((paper) => paper.industry_level === "core" || paper.industry_level === "watch").length;
   const favorites = state.papers.filter((paper) => paper.favorite).length;
@@ -292,7 +308,7 @@ function digestQueue() {
   const reading = state.papers.filter((paper) => paper.status === "reading").length;
   const notes = state.papers.filter((paper) => (paper.notes || "").trim()).length;
   return [
-    `先读 ${coreCount || highCount} 篇核心/重点论文，重点确认真机、数据、开源和可复现性`,
+    `${scope}先读 ${coreCount || highCount} 篇核心/重点论文，重点确认真机、数据、开源和可复现性`,
     favorites ? `复查 ${favorites} 篇已收藏论文，补充复现或项目关联笔记` : `从必读列表中挑 1-2 篇加入收藏或待复现`,
     reading ? `${reading} 篇在读论文需要收口结论` : `${unread} 篇仍未读，可按分类分批处理`,
     notes ? `${notes} 篇已有笔记，适合沉淀到周报或项目 backlog` : `读完后在卡片里补一条笔记，方便后续检索`,
@@ -302,9 +318,9 @@ function digestQueue() {
 function buildDigestMarkdown(mustRead, signals, queue) {
   const date = formatReportDate(state.generatedAt);
   const lines = [
-    `# 具身智读速览｜${date}`,
+    `# 具身智读速览｜${rangeLabel()}｜${date}`,
     "",
-    `> ${state.dailyBrief || "暂无今日总览。"}`,
+    `> ${state.dailyBrief || `暂无${rangeLabel()}总览。`}`,
     "",
     "## 必读论文",
   ];
@@ -334,8 +350,10 @@ function renderDigest() {
   const signals = digestSignals();
   const queue = digestQueue();
 
-  els.digestDate.textContent = formatReportDate(state.generatedAt);
-  els.digestLead.textContent = state.dailyBrief || "暂无今日总览。";
+  els.briefScope.textContent = rangeSummaryLabel();
+  els.digestTitle.textContent = rangeDigestTitle();
+  els.digestDate.textContent = `${formatReportDate(state.generatedAt)} · ${rangeLabel()}`;
+  els.digestLead.textContent = state.dailyBrief || `暂无${rangeLabel()}总览。`;
   els.digestMustRead.replaceChildren();
   els.digestSignals.replaceChildren();
   els.digestQueue.replaceChildren();
@@ -391,7 +409,7 @@ function renderStats() {
 
 function emptyText() {
   if (!state.papers.length) {
-    return "当前时间范围没有匹配到论文。可以切换到 7 天，或稍后刷新。";
+    return `当前${rangeLabel()}范围没有匹配到论文。可以切换到更长时间范围，或稍后刷新。`;
   }
   return "没有论文符合当前筛选。可以清空搜索、切换分类或查看全部。";
 }
@@ -411,6 +429,7 @@ function renderPapers(papers) {
     node.dataset.id = paper.id;
     node.classList.toggle("is-favorite", Boolean(paper.favorite));
     node.classList.toggle("is-done", paper.status === "done");
+    node.classList.add(`level-${paper.industry_level || "archive"}`);
 
     const priority = paper.read_priority || "medium";
     const priorityEl = node.querySelector(".priority");
@@ -422,6 +441,7 @@ function renderPapers(papers) {
     node.querySelector(".category").textContent = paper.primary_category || "arXiv";
     node.querySelector(".user-category-chip").textContent = paper.user_category || "未分类";
     node.querySelector(".date").textContent = formatDate(paper.published);
+    node.querySelector(".industry-score").textContent = String(paper.industry_score || 0);
     node.querySelector(".title").textContent = paper.title;
     node.querySelector(".authors").textContent = (paper.authors || []).slice(0, 8).join(", ");
     node.querySelector(".one-line").textContent = paper.one_line || paper.abstract || "";

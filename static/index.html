@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>具身智读</title>
     <link rel="icon" href="/logo.svg?v=2" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=3" />
+    <link rel="stylesheet" href="/styles.css?v=4" />
   </head>
   <body>
     <main class="shell">
@@ -31,7 +31,7 @@
 
         <div class="segmented" role="group" aria-label="时间范围">
           <button class="segment" type="button" data-days="1">1 天</button>
-          <button class="segment" type="button" data-days="2">2 天</button>
+          <button class="segment" type="button" data-days="3">3 天</button>
           <button class="segment active" type="button" data-days="7">7 天</button>
         </div>
 
@@ -48,7 +48,7 @@
 
       <section class="brief-band">
         <div class="brief-copy">
-          <p class="section-label">今日总览</p>
+          <p id="briefScope" class="section-label">近 7 天总览</p>
           <p id="dailyBrief" class="brief-text">正在载入论文列表...</p>
           <div id="themeList" class="theme-list" aria-label="主题"></div>
         </div>
@@ -76,7 +76,7 @@
         <div class="digest-head">
           <div>
             <p class="section-label">速览日报</p>
-            <h2>今日阅读简报</h2>
+            <h2 id="digestTitle">近 7 天阅读简报</h2>
           </div>
           <div class="digest-actions">
             <span id="digestDate" class="mode-badge">生成中</span>
@@ -166,36 +166,49 @@
     <template id="paperTemplate">
       <article class="paper-card">
         <div class="paper-head">
-          <div class="paper-kicker">
-            <span class="priority"></span>
-            <span class="industry-level"></span>
-            <span class="category"></span>
-            <span class="user-category-chip"></span>
-            <span class="date"></span>
+          <div class="paper-title-block">
+            <div class="paper-kicker">
+              <span class="industry-level"></span>
+              <span class="priority"></span>
+              <span class="category"></span>
+              <span class="user-category-chip"></span>
+              <span class="date"></span>
+            </div>
+            <h2 class="title"></h2>
+            <p class="authors"></p>
           </div>
           <button class="icon-button favorite-button" type="button" title="收藏" aria-label="收藏">☆</button>
         </div>
 
+        <p class="one-line"></p>
+
         <div class="paper-body">
           <div class="paper-main">
-            <h2 class="title"></h2>
-            <p class="authors"></p>
-            <p class="one-line"></p>
-            <dl class="paper-details">
-              <div>
-                <dt>价值</dt>
-                <dd class="why"></dd>
-              </div>
-              <div>
-                <dt>局限</dt>
-                <dd class="limits"></dd>
-              </div>
-            </dl>
-            <div class="method-list"></div>
-            <div class="signal-list"></div>
+            <div class="paper-insights">
+              <section class="insight-card">
+                <span>为什么值得看</span>
+                <p class="why"></p>
+              </section>
+              <section class="insight-card">
+                <span>待读点</span>
+                <p class="limits"></p>
+              </section>
+            </div>
+            <div class="chip-block">
+              <span class="chip-label">方法</span>
+              <div class="method-list"></div>
+            </div>
+            <div class="chip-block">
+              <span class="chip-label">产业信号</span>
+              <div class="signal-list"></div>
+            </div>
           </div>
 
           <aside class="paper-side">
+            <div class="paper-side-summary">
+              <span>产业分</span>
+              <strong class="industry-score">-</strong>
+            </div>
             <label class="select-field stack-field">
               <span>分类</span>
               <select class="category-select"></select>
@@ -223,6 +236,6 @@
       </article>
     </template>
 
-    <script src="/app.js?v=3" defer></script>
+    <script src="/app.js?v=4" defer></script>
   </body>
 </html>

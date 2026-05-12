@@ -836,7 +836,7 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def handle_papers(self, parsed: urllib.parse.ParseResult) -> None:
         params = urllib.parse.parse_qs(parsed.query)
-        days = parse_int(first(params, "days"), default=2, minimum=1, maximum=14)
+        days = parse_int(first(params, "days"), default=3, minimum=1, maximum=14)
         offset = parse_int(first(params, "offset"), default=0, minimum=0, maximum=1000)
         page_size = parse_int(
             first(params, "page_size") or first(params, "limit"),

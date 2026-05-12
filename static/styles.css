@@ -132,6 +132,7 @@ h1 {
 .theme,
 .method,
 .signal,
+.chip-label,
 .user-category-chip {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -550,13 +551,39 @@ h1 {
 }
 
 .paper-card {
+  position: relative;
   display: grid;
   gap: 14px;
-  padding: 18px;
+  overflow: hidden;
+  padding: 18px 18px 16px 22px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 10px 26px rgba(32, 33, 36, 0.05);
+}
+
+.paper-card::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--line);
+  content: "";
+}
+
+.paper-card.level-core::before {
+  background: var(--rose);
+}
+
+.paper-card.level-watch::before {
+  background: var(--amber);
+}
+
+.paper-card.level-scan::before {
+  background: var(--blue);
+}
+
+.paper-card.level-archive::before {
+  background: var(--muted);
 }
 
 .paper-card.is-favorite {
@@ -569,8 +596,15 @@ h1 {
 }
 
 .paper-head {
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.paper-title-block {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
 }
 
 .paper-kicker {
@@ -581,8 +615,8 @@ h1 {
 
 .paper-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.22fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 0.24fr);
+  gap: 16px;
 }
 
 .paper-main {
@@ -608,16 +642,17 @@ h1 {
 }
 
 .title {
-  margin: 2px 0 7px;
+  margin: 0;
   overflow-wrap: anywhere;
-  font-size: 21px;
-  line-height: 1.28;
+  font-size: 22px;
+  line-height: 1.24;
   letter-spacing: 0;
 }
 
 .authors,
 .one-line,
-.paper-details dd {
+.paper-details dd,
+.insight-card p {
   overflow-wrap: anywhere;
 }
 
@@ -629,10 +664,53 @@ h1 {
 }
 
 .one-line {
-  margin: 12px 0;
+  margin: 0;
+  border: 1px solid rgba(15, 118, 110, 0.13);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: rgba(223, 243, 239, 0.46);
   color: var(--ink);
   font-size: 16px;
   line-height: 1.65;
+}
+
+.paper-insights {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.insight-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.insight-card span,
+.chip-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.insight-card p {
+  margin: 6px 0 0;
+  color: #34363a;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.chip-block {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.chip-label {
+  width: fit-content;
 }
 
 .paper-details {
@@ -668,7 +746,6 @@ h1 {
 .signal-list {
   flex-wrap: wrap;
   gap: 7px;
-  margin-top: 8px;
 }
 
 .method {
@@ -711,6 +788,30 @@ h1 {
   display: grid;
   align-content: start;
   gap: 10px;
+}
+
+.paper-side-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--soft);
+}
+
+.paper-side-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.paper-side-summary strong {
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1;
 }
 
 .stack-field {
@@ -883,6 +984,7 @@ h1 {
 
   .meta-grid,
   .paper-details,
+  .paper-insights,
   .brief-stats {
     grid-template-columns: 1fr;
   }
