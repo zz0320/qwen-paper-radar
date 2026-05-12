@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>具身智读</title>
     <link rel="icon" href="/logo.svg?v=2" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=4" />
+    <link rel="stylesheet" href="/styles.css?v=5" />
   </head>
   <body>
     <main class="shell">
@@ -44,6 +44,16 @@
           <span aria-hidden="true">↻</span>
           刷新
         </button>
+      </section>
+
+      <section id="loadStatus" class="load-status is-idle" aria-live="polite" aria-label="加载状态">
+        <div class="load-status-copy">
+          <span class="load-dot" aria-hidden="true"></span>
+          <span id="loadStatusText">Qwen 就绪</span>
+        </div>
+        <div class="load-progress-track" aria-hidden="true">
+          <div id="loadProgress" class="load-progress-bar"></div>
+        </div>
       </section>
 
       <section class="brief-band">
@@ -236,6 +246,6 @@
       </article>
     </template>
 
-    <script src="/app.js?v=6" defer></script>
+    <script src="/app.js?v=7" defer></script>
   </body>
 </html>

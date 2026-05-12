@@ -212,6 +212,88 @@ h1 {
   box-shadow: var(--shadow);
 }
 
+.load-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.32fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 44px;
+  margin-top: 10px;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+  box-shadow: 0 10px 24px rgba(32, 33, 36, 0.05);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.load-status.is-idle {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.load-status-copy {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 9px;
+}
+
+.load-status-copy span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.load-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--teal);
+  box-shadow: 0 0 0 5px rgba(15, 118, 110, 0.12);
+}
+
+.load-status.is-active .load-dot {
+  animation: feedPulse 0.9s ease-in-out infinite;
+}
+
+.load-status.is-done {
+  border-color: rgba(37, 116, 67, 0.22);
+}
+
+.load-status.is-done .load-dot {
+  background: var(--green);
+}
+
+.load-status.is-error {
+  border-color: rgba(180, 35, 58, 0.28);
+  color: var(--rose);
+}
+
+.load-status.is-error .load-dot {
+  background: var(--rose);
+}
+
+.load-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--soft);
+}
+
+.load-progress-bar {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--teal), var(--blue));
+  transition: width 0.32s ease;
+}
+
 .search-box {
   display: flex;
   align-items: center;
@@ -940,6 +1022,10 @@ h1 {
 
   .digest-lead {
     grid-column: auto;
+  }
+
+  .load-status {
+    grid-template-columns: 1fr;
   }
 
   .filter-tools {

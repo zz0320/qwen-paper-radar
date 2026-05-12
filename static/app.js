@@ -80,12 +80,18 @@ const els = {
   highValue: document.querySelector("#highValue"),
   libraryValue: document.querySelector("#libraryValue"),
   modeValue: document.querySelector("#modeValue"),
+  loadStatus: document.querySelector("#loadStatus"),
+  loadStatusText: document.querySelector("#loadStatusText"),
+  loadProgress: document.querySelector("#loadProgress"),
   resultHint: document.querySelector("#resultHint"),
   paperList: document.querySelector("#paperList"),
   feedSentinel: document.querySelector("#feedSentinel"),
   feedStatus: document.querySelector("#feedStatus"),
   template: document.querySelector("#paperTemplate"),
 };
+
+let loadProgressTimer = null;
+let loadProgressValue = 0;
 
 function formatDate(value) {
   if (!value) return "-";
@@ -136,6 +142,78 @@ function setLoading(loading) {
   els.refreshButton.disabled = loading;
   els.refreshButton.querySelector("span").textContent = loading ? "…" : "↻";
   renderFeedStatus();
+}
+
+function setLoadProgress(value, text) {
+  if (!els.loadStatus || !els.loadProgress || !els.loadStatusText) return;
+  loadProgressValue = Math.max(0, Math.min(100, value));
+  els.loadProgress.style.width = `${loadProgressValue}%`;
+  if (text) {
+    els.loadStatusText.textContent = text;
+  }
+}
+
+function clearLoadProgressTimer() {
+  if (loadProgressTimer) {
+    clearInterval(loadProgressTimer);
+    loadProgressTimer = null;
+  }
+}
+
+function loadingLabel({ append = false, refresh = false } = {}) {
+  if (!state.qwen) {
+    return append ? `正在加载下一批 ${state.pageSize} 篇论文...` : `正在抓取${rangeLabel()}论文...`;
+  }
+  if (append) return `Qwen 正在阅读下一批 ${state.pageSize} 篇论文...`;
+  if (refresh) return `正在刷新${rangeLabel()}论文，Qwen 会重新梳理摘要...`;
+  return `Qwen 正在阅读${rangeLabel()}首批 ${state.pageSize} 篇论文...`;
+}
+
+function phaseLabel(progress, { append = false } = {}) {
+  if (!state.qwen) {
+    if (progress < 55) return "正在抓取 arXiv 论文...";
+    return "正在整理论文卡片...";
+  }
+  if (progress < 28) return "正在抓取 arXiv 论文...";
+  if (progress < 76) return append ? `Qwen 正在梳理下一批 ${state.pageSize} 篇...` : `Qwen 正在阅读 ${state.pageSize} 篇论文摘要...`;
+  return "正在生成中文结论、产业信号和卡片...";
+}
+
+function startLoadProgress(options = {}) {
+  clearLoadProgressTimer();
+  if (!els.loadStatus) return;
+  els.loadStatus.classList.remove("is-idle", "is-done", "is-error");
+  els.loadStatus.classList.add("is-active");
+  setLoadProgress(state.qwen ? 12 : 20, loadingLabel(options));
+
+  loadProgressTimer = setInterval(() => {
+    const cap = state.qwen ? 90 : 82;
+    const next = loadProgressValue + Math.max(0.45, (cap - loadProgressValue) * 0.075);
+    setLoadProgress(Math.min(cap, next), phaseLabel(next, options));
+  }, 700);
+}
+
+function finishLoadProgress({ append = false } = {}) {
+  clearLoadProgressTimer();
+  if (!els.loadStatus) return;
+  els.loadStatus.classList.remove("is-active", "is-error");
+  els.loadStatus.classList.add("is-done");
+  setLoadProgress(100, append ? `下一批 ${state.pageSize} 篇已加载` : "Qwen 梳理完成，卡片已更新");
+  setTimeout(() => {
+    if (!state.loading && els.loadStatus?.classList.contains("is-done")) {
+      els.loadStatus.classList.add("is-idle");
+      els.loadStatus.classList.remove("is-done");
+      setLoadProgress(0, "Qwen 就绪");
+    }
+  }, 1400);
+}
+
+function failLoadProgress(message = "加载失败，请稍后重试") {
+  clearLoadProgressTimer();
+  if (!els.loadStatus) return;
+  els.loadStatus.classList.remove("is-active", "is-done", "is-idle");
+  els.loadStatus.classList.add("is-error");
+  setLoadProgress(100, message);
 }
 
 function renderCategoryOptions(select, selected, includeAll = false) {
@@ -504,7 +582,9 @@ function renderFeedStatus() {
     if (state.prefetchedPage) {
       els.feedStatus.textContent = `下一批 ${state.pageSize} 篇已预取，下滑即看`;
     } else if (state.prefetchPromise) {
-      els.feedStatus.textContent = `正在预取下一批 ${state.pageSize} 篇...`;
+      els.feedStatus.textContent = state.qwen
+        ? `Qwen 正在预取下一批 ${state.pageSize} 篇...`
+        : `正在预取下一批 ${state.pageSize} 篇...`;
     } else {
       els.feedStatus.textContent = `继续下滑加载更多论文，每批 ${state.pageSize} 篇`;
     }
@@ -776,13 +856,16 @@ async function loadFeedPage({ refresh = false, append = false } = {}) {
   }
   setLoading(true);
   let shouldPrefetch = false;
+  startLoadProgress({ append, refresh });
 
   try {
     const data = await fetchFeedPage({ offset: append ? state.nextOffset : 0, refresh });
     renderResponse(data, { append });
     shouldPrefetch = true;
+    finishLoadProgress({ append });
   } catch (error) {
     setStatus("status-error", "抓取失败");
+    failLoadProgress(error.message || "加载失败，请稍后重试");
     if (!append) {
       els.dailyBrief.textContent = error.message;
       state.papers = [];
