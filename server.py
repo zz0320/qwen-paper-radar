@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
 CACHE_DIR = ROOT / ".cache"
 CACHE_DIR.mkdir(exist_ok=True)
+DATA_DIR = ROOT / ".data"
+LIBRARY_PATH = DATA_DIR / "library.json"
 
 ARXIV_API = "http://export.arxiv.org/api/query"
 ARXIV_NAMESPACES = {
@@ -64,6 +66,18 @@ KEYWORDS = (
     "hand-eye",
     "real-world robot",
 )
+
+USER_CATEGORIES = (
+    "未分类",
+    "VLA/世界模型",
+    "操作/抓取",
+    "运动控制",
+    "导航/SLAM",
+    "仿真/数据",
+    "群体/系统",
+    "待复现",
+)
+STATUS_OPTIONS = ("unread", "reading", "done", "skip")
 
 
 @dataclass
@@ -154,6 +168,125 @@ def cache_get(name: str, max_age_seconds: int) -> Any | None:
 def cache_set(name: str, payload: Any) -> None:
     path = CACHE_DIR / name
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def default_library() -> dict[str, Any]:
+    return {"papers": {}}
+
+
+def load_library() -> dict[str, Any]:
+    if not LIBRARY_PATH.exists():
+        return default_library()
+    try:
+        payload = json.loads(LIBRARY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default_library()
+    if not isinstance(payload, dict):
+        return default_library()
+    papers = payload.get("papers")
+    if not isinstance(papers, dict):
+        payload["papers"] = {}
+    return payload
+
+
+def save_library(payload: dict[str, Any]) -> None:
+    DATA_DIR.mkdir(exist_ok=True)
+    temp_path = LIBRARY_PATH.with_suffix(".json.tmp")
+    temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(LIBRARY_PATH)
+
+
+def clean_note(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:2000]
+
+
+def normalize_status(value: Any) -> str:
+    return value if value in STATUS_OPTIONS else "unread"
+
+
+def normalize_user_category(value: Any) -> str:
+    return value if value in USER_CATEGORIES else "未分类"
+
+
+def normalize_library_entry(entry: dict[str, Any] | None) -> dict[str, Any]:
+    entry = entry or {}
+    return {
+        "favorite": bool(entry.get("favorite", False)),
+        "user_category": normalize_user_category(entry.get("user_category")),
+        "status": normalize_status(entry.get("status")),
+        "notes": clean_note(entry.get("notes", "")),
+        "updated_at": entry.get("updated_at", ""),
+    }
+
+
+def is_neutral_library_entry(entry: dict[str, Any]) -> bool:
+    return (
+        not entry.get("favorite")
+        and entry.get("user_category") == "未分类"
+        and entry.get("status") == "unread"
+        and not entry.get("notes")
+    )
+
+
+def update_library_entry(paper_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+    library = load_library()
+    papers = library.setdefault("papers", {})
+    current = normalize_library_entry(papers.get(paper_id) if isinstance(papers.get(paper_id), dict) else None)
+
+    if "favorite" in changes:
+        current["favorite"] = bool(changes["favorite"])
+    if "user_category" in changes:
+        current["user_category"] = normalize_user_category(changes["user_category"])
+    if "status" in changes:
+        current["status"] = normalize_status(changes["status"])
+    if "notes" in changes:
+        current["notes"] = clean_note(changes["notes"])
+
+    current["updated_at"] = utc_now().isoformat()
+    if is_neutral_library_entry(current):
+        papers.pop(paper_id, None)
+    else:
+        papers[paper_id] = current
+    save_library(library)
+    return current
+
+
+def library_stats(library: dict[str, Any]) -> dict[str, Any]:
+    papers = library.get("papers", {})
+    if not isinstance(papers, dict):
+        papers = {}
+    normalized = [
+        normalize_library_entry(entry)
+        for entry in papers.values()
+        if isinstance(entry, dict)
+    ]
+    by_category = {category: 0 for category in USER_CATEGORIES}
+    by_status = {status: 0 for status in STATUS_OPTIONS}
+    for entry in normalized:
+        by_category[entry["user_category"]] += 1
+        by_status[entry["status"]] += 1
+    return {
+        "tracked": len(normalized),
+        "favorites": sum(1 for entry in normalized if entry["favorite"]),
+        "notes": sum(1 for entry in normalized if entry["notes"]),
+        "by_category": by_category,
+        "by_status": by_status,
+    }
+
+
+def attach_library_state(papers: list[dict[str, Any]], library: dict[str, Any]) -> list[dict[str, Any]]:
+    states = library.get("papers", {})
+    if not isinstance(states, dict):
+        states = {}
+    enriched = []
+    for paper in papers:
+        state = normalize_library_entry(states.get(paper["id"]) if isinstance(states.get(paper["id"]), dict) else None)
+        item = dict(paper)
+        item.update(state)
+        enriched.append(item)
+    return enriched
 
 
 def normalize_space(value: str) -> str:
@@ -584,8 +717,21 @@ class AppHandler(SimpleHTTPRequestHandler):
                 {
                     "categories": CATEGORIES,
                     "keywords": KEYWORDS,
+                    "user_categories": USER_CATEGORIES,
+                    "status_options": STATUS_OPTIONS,
                     "qwen_model": qwen_config()["model"],
                     "has_qwen_key": bool(qwen_config()["api_key"]),
+                }
+            )
+            return
+        if parsed.path == "/api/library":
+            library = load_library()
+            self.send_json(
+                {
+                    "papers": library.get("papers", {}),
+                    "stats": library_stats(library),
+                    "user_categories": USER_CATEGORIES,
+                    "status_options": STATUS_OPTIONS,
                 }
             )
             return
@@ -593,6 +739,13 @@ class AppHandler(SimpleHTTPRequestHandler):
             self.handle_papers(parsed)
             return
         super().do_GET()
+
+    def do_POST(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/library/paper":
+            self.handle_library_update()
+            return
+        self.send_json({"error": "未知接口"}, status=HTTPStatus.NOT_FOUND)
 
     def handle_papers(self, parsed: urllib.parse.ParseResult) -> None:
         params = urllib.parse.parse_qs(parsed.query)
@@ -612,21 +765,51 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "model": qwen_config()["model"],
                     "error": None,
                 }
+            library = load_library()
+            merged = attach_library_state(merge_summaries(papers, summary), library)
             self.send_json(
                 {
                     "generated_at": utc_now().isoformat(),
                     "source": "arXiv",
                     "filters": {"days": days, "limit": limit, "categories": CATEGORIES},
                     "qwen": qwen_meta,
+                    "library": library_stats(library),
                     "daily_brief": summary.get("daily_brief", ""),
                     "themes": summary.get("themes", []),
-                    "papers": merge_summaries(papers, summary),
+                    "papers": merged,
                 }
             )
         except RuntimeError as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_GATEWAY)
         except Exception as exc:
             self.send_json({"error": f"服务处理失败：{exc}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def read_json_body(self, max_bytes: int = 64 * 1024) -> dict[str, Any]:
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            size = 0
+        if size <= 0:
+            return {}
+        if size > max_bytes:
+            raise ValueError("请求体过大")
+        raw = self.rfile.read(size).decode("utf-8")
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("请求体必须是 JSON object")
+        return data
+
+    def handle_library_update(self) -> None:
+        try:
+            payload = self.read_json_body()
+            paper_id = normalize_space(str(payload.get("id", "")))
+            if not paper_id:
+                self.send_json({"error": "缺少论文 id"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            state = update_library_entry(paper_id, payload)
+            self.send_json({"id": paper_id, "state": state, "library": library_stats(load_library())})
+        except (json.JSONDecodeError, ValueError) as exc:
+            self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
 
     def send_json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

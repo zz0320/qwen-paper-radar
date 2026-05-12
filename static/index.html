@@ -10,40 +10,96 @@
     <main class="shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Daily Robotics / Embodied AI</p>
+          <p class="eyebrow">Robotics / Embodied AI Reading Desk</p>
           <h1>Qwen 具身论文雷达</h1>
         </div>
         <div class="status-row">
           <span id="qwenStatus" class="status status-muted">检查 Qwen</span>
-          <button id="refreshButton" class="primary-button" type="button" title="刷新论文">
-            <span aria-hidden="true">↻</span>
-            刷新
-          </button>
+          <span id="modeValue" class="mode-badge">摘要模式</span>
         </div>
       </header>
 
-      <section class="control-band" aria-label="筛选">
+      <section class="command-bar" aria-label="检索和刷新">
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="searchInput" type="search" placeholder="搜索标题、作者、方法、摘要" autocomplete="off" />
+        </label>
+
         <div class="segmented" role="group" aria-label="时间范围">
           <button class="segment" type="button" data-days="1">1 天</button>
           <button class="segment" type="button" data-days="2">2 天</button>
           <button class="segment active" type="button" data-days="7">7 天</button>
         </div>
-        <label class="field">
+
+        <label class="field compact-field">
           <span>数量</span>
           <input id="limitInput" type="number" min="3" max="50" value="18" />
         </label>
+
         <label class="toggle">
           <input id="qwenToggle" type="checkbox" checked />
-          <span>Qwen 总结</span>
+          <span>Qwen</span>
         </label>
+
+        <button id="refreshButton" class="primary-button" type="button" title="刷新论文">
+          <span aria-hidden="true">↻</span>
+          刷新
+        </button>
       </section>
 
       <section class="brief-band">
         <div class="brief-copy">
           <p class="section-label">今日总览</p>
           <p id="dailyBrief" class="brief-text">正在载入论文列表...</p>
+          <div id="themeList" class="theme-list" aria-label="主题"></div>
         </div>
-        <div id="themeList" class="theme-list" aria-label="主题"></div>
+        <div class="brief-stats" aria-label="统计">
+          <div>
+            <span class="meta-label">全部</span>
+            <strong id="countValue">-</strong>
+          </div>
+          <div>
+            <span class="meta-label">当前显示</span>
+            <strong id="visibleValue">-</strong>
+          </div>
+          <div>
+            <span class="meta-label">收藏</span>
+            <strong id="favoriteValue">-</strong>
+          </div>
+          <div>
+            <span class="meta-label">高优先级</span>
+            <strong id="highValue">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="filter-panel" aria-label="论文筛选">
+        <div class="filter-chips" role="group" aria-label="视图">
+          <button class="filter-chip active" type="button" data-view="all">全部</button>
+          <button class="filter-chip" type="button" data-view="favorites">收藏</button>
+          <button class="filter-chip" type="button" data-view="high">高优先级</button>
+          <button class="filter-chip" type="button" data-view="unread">未读</button>
+          <button class="filter-chip" type="button" data-view="reading">在读</button>
+          <button class="filter-chip" type="button" data-view="done">已读</button>
+          <button class="filter-chip" type="button" data-view="notes">有笔记</button>
+        </div>
+
+        <div class="filter-tools">
+          <label class="select-field">
+            <span>分类</span>
+            <select id="categoryFilter"></select>
+          </label>
+          <label class="select-field">
+            <span>排序</span>
+            <select id="sortSelect">
+              <option value="priority">优先级</option>
+              <option value="date">最新发布</option>
+              <option value="favorite">收藏优先</option>
+              <option value="category">分类</option>
+            </select>
+          </label>
+          <button id="clearFiltersButton" class="ghost-button" type="button">清空筛选</button>
+        </div>
       </section>
 
       <section class="meta-grid" aria-label="运行状态">
@@ -56,15 +112,15 @@
           <strong id="timeValue">-</strong>
         </div>
         <div>
-          <span class="meta-label">论文数</span>
-          <strong id="countValue">-</strong>
+          <span class="meta-label">本地库</span>
+          <strong id="libraryValue">-</strong>
         </div>
       </section>
 
       <section class="paper-section">
         <div class="section-head">
-          <p class="section-label">论文队列</p>
-          <span id="modeValue" class="mode-badge">摘要模式</span>
+          <p class="section-label">论文工作台</p>
+          <span id="resultHint" class="mode-badge">等待数据</span>
         </div>
         <div id="paperList" class="paper-list"></div>
       </section>
@@ -72,31 +128,59 @@
 
     <template id="paperTemplate">
       <article class="paper-card">
-        <div class="paper-main">
+        <div class="paper-head">
           <div class="paper-kicker">
             <span class="priority"></span>
             <span class="category"></span>
+            <span class="user-category-chip"></span>
             <span class="date"></span>
           </div>
-          <h2 class="title"></h2>
-          <p class="authors"></p>
-          <p class="one-line"></p>
-          <dl class="paper-details">
-            <div>
-              <dt>价值</dt>
-              <dd class="why"></dd>
-            </div>
-            <div>
-              <dt>局限</dt>
-              <dd class="limits"></dd>
-            </div>
-          </dl>
-          <div class="method-list"></div>
+          <button class="icon-button favorite-button" type="button" title="收藏" aria-label="收藏">☆</button>
         </div>
-        <div class="paper-actions">
-          <a class="link abs-link" target="_blank" rel="noreferrer">arXiv</a>
-          <a class="link pdf-link" target="_blank" rel="noreferrer">PDF</a>
+
+        <div class="paper-body">
+          <div class="paper-main">
+            <h2 class="title"></h2>
+            <p class="authors"></p>
+            <p class="one-line"></p>
+            <dl class="paper-details">
+              <div>
+                <dt>价值</dt>
+                <dd class="why"></dd>
+              </div>
+              <div>
+                <dt>局限</dt>
+                <dd class="limits"></dd>
+              </div>
+            </dl>
+            <div class="method-list"></div>
+          </div>
+
+          <aside class="paper-side">
+            <label class="select-field stack-field">
+              <span>分类</span>
+              <select class="category-select"></select>
+            </label>
+            <div class="status-editor" role="group" aria-label="阅读状态">
+              <button type="button" data-status="unread">未读</button>
+              <button type="button" data-status="reading">在读</button>
+              <button type="button" data-status="done">已读</button>
+              <button type="button" data-status="skip">跳过</button>
+            </div>
+            <div class="paper-actions">
+              <a class="link abs-link" target="_blank" rel="noreferrer">arXiv</a>
+              <a class="link pdf-link" target="_blank" rel="noreferrer">PDF</a>
+            </div>
+          </aside>
         </div>
+
+        <details class="note-box">
+          <summary>笔记</summary>
+          <textarea class="notes" rows="3" placeholder="记录待读点、复现计划、相关项目..."></textarea>
+          <div class="note-footer">
+            <span class="save-status">本地保存</span>
+          </div>
+        </details>
       </article>
     </template>
 
