@@ -40,11 +40,13 @@ const state = {
   prefetchOffset: null,
   qwen: true,
   loading: false,
+  summaryLoading: false,
   papers: [],
   filtered: [],
   userCategories: DEFAULT_CATEGORIES,
   dailyBrief: "",
   serverBrief: "",
+  digest: null,
   themes: [],
   generatedAt: "",
   digestMarkdown: "",
@@ -177,23 +179,32 @@ function clearLoadProgressTimer() {
   }
 }
 
-function loadingLabel({ append = false, refresh = false } = {}) {
-  if (!state.qwen) {
-    return append ? `正在加载下一批 ${state.pageSize} 篇论文...` : `正在抓取${rangeLabel()}论文...`;
+function loadingLabel({ append = false, refresh = false, summary = false } = {}) {
+  if (summary) {
+    if (!state.qwen) return `正在按${rangeLabel()}完整论文池生成规则简报...`;
+    return `Qwen 正在按${rangeLabel()}完整论文池生成阅读简报...`;
   }
-  if (append) return `Qwen 正在阅读下一批 ${state.pageSize} 篇论文...`;
-  if (refresh) return `正在刷新${rangeLabel()}论文，Qwen 会重新梳理摘要...`;
-  return `Qwen 正在阅读${rangeLabel()}首批 ${state.pageSize} 篇论文...`;
+  if (!state.qwen) {
+    return append ? `正在从后台缓存加载下一批 ${state.pageSize} 篇论文...` : `正在建立${rangeLabel()}后台论文池...`;
+  }
+  if (append) return `正在从${rangeLabel()}完整缓存中加载下一批 ${state.pageSize} 篇...`;
+  if (refresh) return `正在刷新${rangeLabel()}完整论文池，Qwen 会按全量重新梳理...`;
+  return `Qwen 正在基于${rangeLabel()}完整论文池生成中文梳理...`;
 }
 
-function phaseLabel(progress, { append = false } = {}) {
+function phaseLabel(progress, { append = false, summary = false } = {}) {
+  if (summary) {
+    if (progress < 30) return "正在读取后台缓存的完整论文池...";
+    if (progress < 78) return `Qwen 正在梳理${rangeLabel()}全部论文...`;
+    return "正在更新全量阅读简报、方向信号和论文卡片...";
+  }
   if (!state.qwen) {
     if (progress < 55) return "正在抓取 arXiv 论文...";
-    return "正在整理论文卡片...";
+    return "正在写入后台时间窗口缓存...";
   }
   if (progress < 28) return "正在抓取 arXiv 论文...";
-  if (progress < 76) return append ? `Qwen 正在梳理下一批 ${state.pageSize} 篇...` : `Qwen 正在阅读 ${state.pageSize} 篇论文摘要...`;
-  return "正在生成中文结论、产业信号和卡片...";
+  if (progress < 76) return append ? `正在读取${rangeLabel()}后台缓存...` : `Qwen 正在梳理${rangeLabel()}全部论文...`;
+  return "正在生成全量阅读简报、方向信号和论文卡片...";
 }
 
 function loadedProgressLabel() {
@@ -527,6 +538,13 @@ function currentLoadedBrief() {
   if (!state.papers.length) {
     return state.serverBrief || `当前${rangeLabel()}范围没有匹配到论文。可以稍后刷新或切换时间范围。`;
   }
+  if (state.serverBrief) {
+    const total = state.totalAvailable || rangeTotal() || state.papers.length;
+    const loadedNote = total > state.papers.length
+      ? `当前信息流已加载 ${state.papers.length}/${total} 篇。`
+      : `当前信息流已加载全部 ${state.papers.length} 篇。`;
+    return `${state.serverBrief} ${loadedNote}`;
+  }
   const total = state.totalAvailable || rangeTotal() || state.papers.length;
   const loadedText = total && total > state.papers.length
     ? `已加载 ${state.papers.length}/${total} 篇`
@@ -581,9 +599,16 @@ function buildDigestMarkdown(mustRead, signals, queue, brief) {
 }
 
 function renderDigest() {
-  const mustRead = topPapers(3);
-  const signals = digestSignals();
-  const queue = digestQueue();
+  const serverDigest = state.digest || {};
+  const mustRead = Array.isArray(serverDigest.must_read) && serverDigest.must_read.length
+    ? serverDigest.must_read.slice(0, 5)
+    : topPapers(3);
+  const signals = Array.isArray(serverDigest.signals) && serverDigest.signals.length
+    ? serverDigest.signals
+    : digestSignals();
+  const queue = Array.isArray(serverDigest.queue) && serverDigest.queue.length
+    ? serverDigest.queue
+    : digestQueue();
   const brief = currentLoadedBrief();
   state.dailyBrief = brief;
 
@@ -863,6 +888,41 @@ function mergeThemes(nextThemes) {
   state.themes = [...merged].slice(0, 8);
 }
 
+function updateQwenStatus(meta) {
+  if (meta?.used) {
+    const cached = meta.cached ? "缓存" : meta.model;
+    const scope = meta.paper_count ? `全量 ${meta.paper_count} 篇` : "全量窗口";
+    setStatus("status-ok", `Qwen 已启用 · ${cached} · ${scope}`);
+    els.modeValue.textContent = "Qwen 模式";
+  } else if (meta?.pending) {
+    const scope = meta.paper_count ? `全量 ${meta.paper_count} 篇` : "全量窗口";
+    setStatus("status-warn", `Qwen 全量简报生成中 · ${scope}`);
+    els.modeValue.textContent = "Qwen 模式";
+  } else if (meta?.enabled) {
+    setStatus("status-warn", "Qwen 未返回，已降级");
+    els.modeValue.textContent = "规则模式";
+  } else {
+    setStatus("status-warn", "未配置 API key");
+    els.modeValue.textContent = "规则模式";
+  }
+}
+
+function mergeSummaryIntoLoaded(summaryPapers) {
+  const updates = new Map((summaryPapers || []).map((paper) => [paper.id, normalizePaper(paper)]));
+  for (const paper of state.papers) {
+    const update = updates.get(paper.id);
+    if (!update) continue;
+    const localState = {
+      favorite: paper.favorite,
+      user_category: paper.user_category,
+      status: paper.status,
+      notes: paper.notes,
+      updated_at: paper.updated_at,
+    };
+    Object.assign(paper, update, localState);
+  }
+}
+
 function renderResponse(data, { append = false } = {}) {
   const nextPapers = (data.papers || []).map(normalizePaper);
   if (append) {
@@ -880,6 +940,9 @@ function renderResponse(data, { append = false } = {}) {
   if (!append || !state.serverBrief) {
     state.serverBrief = data.daily_brief || "";
   }
+  if (!append || !state.digest) {
+    state.digest = data.digest || null;
+  }
   if (append) {
     mergeThemes(data.themes || []);
   } else {
@@ -890,17 +953,7 @@ function renderResponse(data, { append = false } = {}) {
   els.sourceValue.textContent = data.source || "arXiv";
   els.timeValue.textContent = formatDate(data.generated_at);
 
-  if (data.qwen?.used) {
-    const cached = data.qwen.cached ? "缓存" : data.qwen.model;
-    setStatus("status-ok", `Qwen 已启用 · ${cached}`);
-    els.modeValue.textContent = "Qwen 模式";
-  } else if (data.qwen?.enabled) {
-    setStatus("status-warn", "Qwen 未返回，已降级");
-    els.modeValue.textContent = "规则模式";
-  } else {
-    setStatus("status-warn", "未配置 API key");
-    els.modeValue.textContent = "规则模式";
-  }
+  updateQwenStatus(data.qwen);
 
   if (data.qwen?.error) {
     console.warn("Qwen summary failed:", data.qwen.error);
@@ -1002,6 +1055,57 @@ async function fetchFeedPage({ offset, refresh = false } = {}) {
   return data;
 }
 
+function summaryParams({ refresh = false } = {}) {
+  return new URLSearchParams({
+    days: String(state.days),
+    qwen: state.qwen ? "1" : "0",
+    refresh: refresh ? "1" : "0",
+  });
+}
+
+async function fetchWindowSummary({ refresh = false } = {}) {
+  const params = summaryParams({ refresh });
+  const response = await fetch(`/api/summary?${params.toString()}`);
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "全量简报请求失败");
+  }
+  return data;
+}
+
+function applySummaryResponse(data) {
+  state.serverBrief = data.daily_brief || state.serverBrief;
+  state.digest = data.digest || state.digest;
+  state.themes = data.themes || state.themes;
+  state.generatedAt = data.generated_at || state.generatedAt;
+  state.rangeCounts = normalizeRangeCounts(data.range_counts);
+  mergeSummaryIntoLoaded(data.papers || []);
+  renderThemes(state.themes || []);
+  els.timeValue.textContent = formatDate(state.generatedAt);
+  updateQwenStatus(data.qwen);
+  applyFilters();
+}
+
+async function loadWindowSummary({ refresh = false } = {}) {
+  if (state.summaryLoading) return;
+  const requestDays = state.days;
+  state.summaryLoading = true;
+  startLoadProgress({ summary: true, refresh });
+  try {
+    const data = await fetchWindowSummary({ refresh });
+    if (requestDays !== state.days) return;
+    applySummaryResponse(data);
+    finishLoadProgress({ append: false });
+  } catch (error) {
+    if (requestDays === state.days) {
+      console.warn("Window summary failed:", error);
+      failLoadProgress(error.message || "全量简报生成失败，已保留论文列表");
+    }
+  } finally {
+    state.summaryLoading = false;
+  }
+}
+
 function prefetchNextPage() {
   if (!state.hasMore || state.loading || state.prefetchPromise) return;
   const offset = state.nextOffset;
@@ -1032,6 +1136,7 @@ async function loadFeedPage({ refresh = false, append = false } = {}) {
     state.hasMore = true;
     state.serverBrief = "";
     state.dailyBrief = "";
+    state.digest = null;
   }
   setLoading(true);
   let shouldPrefetch = false;
@@ -1042,6 +1147,9 @@ async function loadFeedPage({ refresh = false, append = false } = {}) {
     renderResponse(data, { append });
     shouldPrefetch = true;
     finishLoadProgress({ append });
+    if (!append && state.qwen && data.qwen?.pending) {
+      loadWindowSummary({ refresh });
+    }
   } catch (error) {
     setStatus("status-error", "抓取失败");
     failLoadProgress(error.message || "加载失败，请稍后重试");

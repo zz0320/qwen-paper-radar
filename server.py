@@ -212,6 +212,8 @@ USER_CATEGORIES = (
 STATUS_OPTIONS = ("unread", "reading", "done", "skip")
 ARXIV_POOL_SIZE = 250
 DEFAULT_FEED_PAGE_SIZE = 5
+FEED_CACHE_SECONDS = 60 * 45
+FEED_WINDOWS = (1, 3, 7)
 LEGACY_CATEGORY_MAP = {
     "VLA/世界模型": "预训练",
     "操作/抓取": "灵巧操作",
@@ -820,8 +822,51 @@ def filter_papers_by_days(papers: list[dict[str, Any]], days: int) -> list[dict[
 def range_counts_from_papers(papers: list[dict[str, Any]]) -> dict[str, int]:
     return {
         str(days): len(filter_papers_by_days(papers, days))
-        for days in (1, 3, 7)
+        for days in FEED_WINDOWS
     }
+
+
+def feed_window_cache_name(days: int) -> str:
+    return f"feed_days_{days}_{ARXIV_POOL_SIZE}.json"
+
+
+def cache_feed_window(days: int, papers: list[dict[str, Any]]) -> None:
+    cache_set(feed_window_cache_name(days), papers)
+
+
+def build_feed_windows(refresh: bool = False) -> dict[int, list[dict[str, Any]]]:
+    cached_7 = None if refresh else cache_get(feed_window_cache_name(7), max_age_seconds=FEED_CACHE_SECONDS)
+    if isinstance(cached_7, list):
+        seven_day_papers = cached_7
+    else:
+        seven_day_papers = rank_feed_papers(fetch_recent_papers(days=7, refresh=refresh))
+        cache_feed_window(7, seven_day_papers)
+
+    windows: dict[int, list[dict[str, Any]]] = {}
+    for days in FEED_WINDOWS:
+        if days == 7:
+            papers = seven_day_papers
+        else:
+            papers = rank_feed_papers(filter_papers_by_days(seven_day_papers, days))
+            cache_feed_window(days, papers)
+        windows[days] = papers
+    return windows
+
+
+def fetch_feed_window(days: int, refresh: bool = False) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    if days in FEED_WINDOWS:
+        windows = build_feed_windows(refresh=refresh)
+        return windows[days], {str(day): len(windows[day]) for day in FEED_WINDOWS}
+
+    cache_name = feed_window_cache_name(days)
+    cached = None if refresh else cache_get(cache_name, max_age_seconds=FEED_CACHE_SECONDS)
+    if isinstance(cached, list):
+        papers = cached
+    else:
+        papers = rank_feed_papers(fetch_recent_papers(days=days, refresh=refresh))
+        cache_feed_window(days, papers)
+    windows = build_feed_windows(refresh=False)
+    return papers, {str(day): len(windows[day]) for day in FEED_WINDOWS}
 
 
 def qwen_config() -> dict[str, Any]:
@@ -853,7 +898,7 @@ def qwen_cache_key(
 ) -> str:
     seed = json.dumps(
         {
-            "prompt_version": 2,
+            "prompt_version": 3,
             "model": model,
             "enable_thinking": enable_thinking,
             "thinking_budget": thinking_budget if enable_thinking else None,
@@ -892,8 +937,10 @@ def qwen_attempts(config: dict[str, Any]) -> list[dict[str, Any]]:
     return attempts
 
 
-def build_qwen_prompt(papers: list[dict[str, Any]]) -> str:
+def build_qwen_prompt(papers: list[dict[str, Any]], days: int | None = None) -> str:
     compact = []
+    paper_count = len(papers)
+    abstract_limit = 1100 if paper_count <= 12 else 720 if paper_count <= 48 else 420
     for paper in papers:
         compact.append(
             {
@@ -914,10 +961,12 @@ def build_qwen_prompt(papers: list[dict[str, Any]]) -> str:
                     for link in paper.get("external_links", [])[:5]
                     if isinstance(link, dict)
                 ],
-                "abstract": paper["abstract"][:1600],
+                "abstract": paper["abstract"][:abstract_limit],
             }
         )
+    scope_text = f"这是用户选中的近 {days} 天内全部 {paper_count} 篇论文。" if days else f"这是当前范围内全部 {paper_count} 篇论文。"
     return (
+        f"{scope_text}请基于全部论文做中文梳理，不要只总结分页首屏。"
         "请阅读下面 arXiv 论文元数据，筛选机器人、具身智能、VLA、操作、导航、"
         "运动控制、仿真到现实等方向的论文。用中文输出 JSON，不要 Markdown。"
         "JSON 结构必须是："
@@ -928,6 +977,8 @@ def build_qwen_prompt(papers: list[dict[str, Any]]) -> str:
         "\"methods\":[\"方法点1\",\"方法点2\"],"
         "\"limitations\":\"局限或待读点\","
         "\"read_priority\":\"high|medium|low\"}]}。"
+        "daily_brief、themes 和阅读优先级必须基于该时间范围的完整论文池。"
+        "papers 数组要尽量覆盖所有输入论文 id，尤其不能漏掉机器人/具身相关高价值论文。"
         "优先指出工程可用性、机器人系统价值、开源/数据/项目页信号，以及与具身智能的关系。\n\n"
         + json.dumps(compact, ensure_ascii=False)
     )
@@ -949,11 +1000,22 @@ def extract_json_object(text: str) -> dict[str, Any]:
 
 
 def summarize_with_qwen(papers: list[dict[str, Any]], refresh: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+    return summarize_range_with_qwen(papers, days=None, refresh=refresh)
+
+
+def summarize_range_with_qwen(
+    papers: list[dict[str, Any]],
+    days: int | None = None,
+    refresh: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     config = qwen_config()
     meta = {
         "enabled": bool(config["api_key"]),
         "used": False,
         "model": config["model"],
+        "scope": "all_window",
+        "scope_days": days,
+        "paper_count": len(papers),
         "attempted_models": [],
         "enable_thinking": config["enable_thinking"],
         "thinking_budget": config["thinking_budget"],
@@ -964,13 +1026,27 @@ def summarize_with_qwen(papers: list[dict[str, Any]], refresh: bool = False) -> 
     if not config["api_key"]:
         return fallback_summary(papers), meta
 
-    cache_name = qwen_cache_key(papers, config["model"], config["enable_thinking"], config["thinking_budget"])
+    attempts = qwen_attempts(config)
     if not refresh:
-        cached = cache_get(cache_name, max_age_seconds=60 * 60 * 12)
-        if cached is not None:
-            meta["used"] = True
-            meta["cached"] = True
-            return cached, meta
+        for attempt in attempts:
+            cached = cache_get(
+                qwen_cache_key(
+                    papers,
+                    attempt["model"],
+                    attempt["enable_thinking"],
+                    config["thinking_budget"],
+                ),
+                max_age_seconds=60 * 60 * 12,
+            )
+            if cached is not None:
+                meta["used"] = True
+                meta["cached"] = True
+                meta["model"] = attempt["model"]
+                meta["enable_thinking"] = attempt["enable_thinking"]
+                meta["attempted_models"].append(
+                    f"{attempt['model']}{' + thinking' if attempt['enable_thinking'] else ''} cache"
+                )
+                return cached, meta
 
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
@@ -981,10 +1057,10 @@ def summarize_with_qwen(papers: list[dict[str, Any]], refresh: bool = False) -> 
             "role": "system",
             "content": "你是机器人和具身智能方向的研究助理，擅长从论文摘要中提炼技术路线、价值和阅读优先级。",
         },
-        {"role": "user", "content": build_qwen_prompt(papers)},
+        {"role": "user", "content": build_qwen_prompt(papers, days=days)},
     ]
 
-    for attempt in qwen_attempts(config):
+    for attempt in attempts:
         model = attempt["model"]
         enable_thinking = attempt["enable_thinking"]
         meta["attempted_models"].append(
@@ -1018,6 +1094,52 @@ def summarize_with_qwen(papers: list[dict[str, Any]], refresh: bool = False) -> 
             meta["error"] = str(exc)
 
     return fallback_summary(papers), meta
+
+
+def cached_range_summary(
+    papers: list[dict[str, Any]],
+    days: int | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    config = qwen_config()
+    meta = {
+        "enabled": bool(config["api_key"]),
+        "used": False,
+        "cached": False,
+        "pending": bool(config["api_key"]),
+        "model": config["model"],
+        "scope": "all_window",
+        "scope_days": days,
+        "paper_count": len(papers),
+        "attempted_models": [],
+        "enable_thinking": config["enable_thinking"],
+        "thinking_budget": config["thinking_budget"],
+        "error": None,
+    }
+    if not papers or not config["api_key"]:
+        meta["pending"] = False
+        return None, meta
+
+    for attempt in qwen_attempts(config):
+        cached = cache_get(
+            qwen_cache_key(
+                papers,
+                attempt["model"],
+                attempt["enable_thinking"],
+                config["thinking_budget"],
+            ),
+            max_age_seconds=60 * 60 * 12,
+        )
+        if cached is not None:
+            meta["used"] = True
+            meta["cached"] = True
+            meta["pending"] = False
+            meta["model"] = attempt["model"]
+            meta["enable_thinking"] = attempt["enable_thinking"]
+            meta["attempted_models"].append(
+                f"{attempt['model']}{' + thinking' if attempt['enable_thinking'] else ''} cache"
+            )
+            return cached, meta
+    return None, meta
 
 
 def fallback_summary(papers: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1150,6 +1272,70 @@ def merge_summaries(papers: list[dict[str, Any]], summary: dict[str, Any]) -> li
     return merged
 
 
+def counted_values(values: list[str], limit: int = 6) -> list[str]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key = normalize_space(value)
+        if not key:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+    return [
+        f"{name} ({count})"
+        for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    ]
+
+
+def build_digest_payload(
+    all_papers: list[dict[str, Any]],
+    summary: dict[str, Any],
+    days: int,
+) -> dict[str, Any]:
+    merged = merge_summaries(all_papers, summary)
+    ranked = rank_feed_papers(merged)
+    must_read = []
+    for paper in ranked[:5]:
+        must_read.append(
+            {
+                "id": paper.get("id", ""),
+                "title": paper.get("title", ""),
+                "arxiv_url": paper.get("arxiv_url", ""),
+                "one_line": paper.get("one_line", ""),
+                "industry_label": paper.get("industry_label", ""),
+                "industry_signals": paper.get("industry_signals", [])[:4],
+                "external_links": paper.get("external_links", [])[:3],
+            }
+        )
+
+    signals = counted_values(
+        [
+            signal
+            for paper in ranked
+            for signal in paper.get("industry_signals", [])
+        ],
+        limit=5,
+    )
+    core_count = sum(1 for paper in ranked if paper.get("industry_level") in ("core", "watch"))
+    high_count = sum(1 for paper in ranked if paper.get("read_priority") == "high")
+    link_count = sum(1 for paper in ranked if paper.get("external_links"))
+    unread_count = len(ranked)
+
+    queue = [
+        f"近 {days} 天完整论文池共 {len(ranked)} 篇，优先处理 {core_count or high_count} 篇核心/重点论文",
+        f"先确认真机、数据、开源和可复现性；当前可追踪外链 {link_count} 篇",
+        f"高优先级 {high_count} 篇适合进入深读或复现候选",
+        f"信息流按每批 {DEFAULT_FEED_PAGE_SIZE} 篇浏览，剩余 {max(0, unread_count - DEFAULT_FEED_PAGE_SIZE)} 篇可继续下滑加载",
+    ]
+    return {
+        "scope_days": days,
+        "total": len(ranked),
+        "daily_brief": summary.get("daily_brief", ""),
+        "themes": summary.get("themes", []),
+        "must_read": must_read,
+        "signals": signals or summary.get("themes", []),
+        "queue": queue,
+    }
+
+
 class AppHandler(SimpleHTTPRequestHandler):
     server_version = "EmbodiedPaperDesk/0.2"
 
@@ -1198,6 +1384,9 @@ class AppHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/papers":
             self.handle_papers(parsed)
             return
+        if parsed.path == "/api/summary":
+            self.handle_summary(parsed)
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -1221,31 +1410,41 @@ class AppHandler(SimpleHTTPRequestHandler):
         want_qwen = first(params, "qwen", "1") != "0"
 
         try:
-            window_days = max(days, 7)
-            all_window_papers = rank_feed_papers(fetch_recent_papers(days=window_days, refresh=refresh))
-            range_counts = range_counts_from_papers(all_window_papers)
-            all_papers = filter_papers_by_days(all_window_papers, days)
+            all_papers, range_counts = fetch_feed_window(days=days, refresh=refresh)
             total = len(all_papers)
             papers = all_papers[offset : offset + page_size]
             next_offset = offset + len(papers)
             has_more = next_offset < total
-            if want_qwen:
-                summary, qwen_meta = summarize_with_qwen(papers, refresh=refresh)
+            summary = None
+            if want_qwen and not refresh:
+                summary, qwen_meta = cached_range_summary(all_papers, days=days)
             else:
-                summary, qwen_meta = fallback_summary(papers), {
+                qwen_meta = {
                     "enabled": bool(qwen_config()["api_key"]),
                     "used": False,
+                    "cached": False,
+                    "pending": bool(qwen_config()["api_key"] and want_qwen),
                     "model": qwen_config()["model"],
+                    "scope": "all_window",
+                    "scope_days": days,
+                    "paper_count": total,
                     "error": None,
                 }
+            if summary is None:
+                summary = fallback_summary(all_papers)
             library = load_library()
             merged = attach_library_state(merge_summaries(papers, summary), library)
+            digest = build_digest_payload(all_papers, summary, days)
             self.send_json(
                 {
                     "generated_at": utc_now().isoformat(),
                     "source": "arXiv",
                     "filters": {"days": days, "offset": offset, "page_size": page_size, "categories": CATEGORIES},
                     "range_counts": range_counts,
+                    "feed_cache": {
+                        "window_days": days,
+                        "strategy": "后台按 1/3/7 天缓存完整论文池，信息流按批读取",
+                    },
                     "pagination": {
                         "offset": offset,
                         "page_size": page_size,
@@ -1258,6 +1457,48 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "library": library_stats(library),
                     "daily_brief": summary.get("daily_brief", ""),
                     "themes": summary.get("themes", []),
+                    "digest": digest,
+                    "papers": merged,
+                }
+            )
+        except RuntimeError as exc:
+            self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_GATEWAY)
+        except Exception as exc:
+            self.send_json({"error": f"服务处理失败：{exc}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_summary(self, parsed: urllib.parse.ParseResult) -> None:
+        params = urllib.parse.parse_qs(parsed.query)
+        days = parse_int(first(params, "days"), default=3, minimum=1, maximum=14)
+        refresh = first(params, "refresh") == "1"
+        want_qwen = first(params, "qwen", "1") != "0"
+
+        try:
+            all_papers, range_counts = fetch_feed_window(days=days, refresh=False)
+            if want_qwen:
+                summary, qwen_meta = summarize_range_with_qwen(all_papers, days=days, refresh=refresh)
+            else:
+                summary, qwen_meta = fallback_summary(all_papers), {
+                    "enabled": bool(qwen_config()["api_key"]),
+                    "used": False,
+                    "cached": False,
+                    "pending": False,
+                    "model": qwen_config()["model"],
+                    "scope": "all_window",
+                    "scope_days": days,
+                    "paper_count": len(all_papers),
+                    "error": None,
+                }
+            merged = merge_summaries(all_papers, summary)
+            self.send_json(
+                {
+                    "generated_at": utc_now().isoformat(),
+                    "source": "arXiv",
+                    "filters": {"days": days, "categories": CATEGORIES},
+                    "range_counts": range_counts,
+                    "qwen": qwen_meta,
+                    "daily_brief": summary.get("daily_brief", ""),
+                    "themes": summary.get("themes", []),
+                    "digest": build_digest_payload(all_papers, summary, days),
                     "papers": merged,
                 }
             )
