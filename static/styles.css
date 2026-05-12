@@ -62,6 +62,21 @@ select {
   margin-bottom: 18px;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 14px;
+}
+
+.brand-logo {
+  width: clamp(44px, 5.2vw, 64px);
+  height: clamp(44px, 5.2vw, 64px);
+  flex: 0 0 auto;
+  border-radius: 18px;
+  box-shadow: 0 14px 28px rgba(32, 33, 36, 0.14);
+}
+
 .eyebrow,
 .section-label,
 .meta-label {
@@ -786,6 +801,14 @@ h1 {
   .topbar {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .brand {
+    align-items: flex-start;
+  }
+
+  .brand-logo {
+    border-radius: 14px;
   }
 
   .digest-head {
