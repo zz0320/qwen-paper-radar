@@ -691,7 +691,7 @@ def merge_summaries(papers: list[dict[str, Any]], summary: dict[str, Any]) -> li
 
 
 class AppHandler(SimpleHTTPRequestHandler):
-    server_version = "QwenPaperRadar/0.1"
+    server_version = "EmbodiedPaperDesk/0.2"
 
     def translate_path(self, path: str) -> str:
         parsed = urllib.parse.urlparse(path)
@@ -837,7 +837,7 @@ def main() -> None:
     port = int(os.getenv("PORT", "8787"))
     address = os.getenv("HOST", "127.0.0.1")
     server = ThreadingHTTPServer((address, port), AppHandler)
-    print(f"Serving Qwen Paper Radar at http://{address}:{port}")
+    print(f"Serving 具身智读 at http://{address}:{port}")
     print("Set DASHSCOPE_API_KEY or QWEN_API_KEY to enable Qwen summaries.")
     try:
         server.serve_forever()
