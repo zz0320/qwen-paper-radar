@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="具身智读 logo">
+  <defs>
+    <linearGradient id="bg" x1="10" y1="8" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#202124"/>
+      <stop offset=".56" stop-color="#263446"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="pageA" x1="17" y1="22" x2="31" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dff3ef"/>
+    </linearGradient>
+    <linearGradient id="pageB" x1="47" y1="22" x2="33" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e6eefb"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="url(#bg)"/>
+  <path d="M17.5 23c5.8.1 10.8 1.9 14.5 5.6v21.7c-3.8-3.2-8.5-4.8-14.5-4.9V23Z" fill="url(#pageA)"/>
+  <path d="M46.5 23c-5.8.1-10.8 1.9-14.5 5.6v21.7c3.8-3.2 8.5-4.8 14.5-4.9V23Z" fill="url(#pageB)"/>
+  <path d="M32 28.6v21.8" fill="none" stroke="#202124" stroke-opacity=".24" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M22.8 30.3c2.4.4 4.5 1.2 6.3 2.5M22.8 36.1c2.5.3 4.6 1.1 6.3 2.4M41.2 30.3c-2.4.4-4.5 1.2-6.3 2.5M41.2 36.1c-2.5.3-4.6 1.1-6.3 2.4" fill="none" stroke="#202124" stroke-opacity=".36" stroke-width="1.7" stroke-linecap="round"/>
+  <circle cx="32" cy="14.8" r="5.2" fill="#fbefd6" stroke="#ffffff" stroke-width="2"/>
+  <path d="M32 20.3v6.7M32 27l-7.3 7M32 27l7.3 7" fill="none" stroke="#fbefd6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="24.7" cy="34" r="3.1" fill="#dff3ef"/>
+  <circle cx="39.3" cy="34" r="3.1" fill="#e6eefb"/>
+</svg>

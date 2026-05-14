@@ -1,94 +1,67 @@
-# 具身智读
+# 本地 arXiv 论文工作台
 
-一个本地网页服务，用 arXiv 抓取近期机器人、具身智能、VLA、操作、导航和运动控制相关论文，并用 Qwen 生成中文快速阅读摘要。
+一个本地 Web 应用，用于按日期抓取 arXiv 论文、按机器人/VLA/具身智能相关子页浏览，并把 Qwen 总结缓存到本地。后端是 Python 标准库 HTTP 服务，前端是 Vue 3 + Vite。
 
-## 功能
-
-- 每日/近 3 天/近 7 天机器人与具身智能论文速览
-- 像信息流一样下滑自动加载，每批 5 篇并预取下一批
-- Qwen 中文总览、主题提炼、单篇论文价值和局限总结
-- 日报式速览，自动生成今日结论、必读论文、方向信号和阅读队列
-- 一键复制 Markdown 速览，方便发到群、周报或笔记系统
-- 从具身行业从业者视角抽取产业信号：真机、开源、具身数据、DAgger/RL、移动操作、灵巧操作、灵巧手、具身模型、Sim2Real 和评测
-- 按产业相关度排序，并提供核心关注、重点跟踪、快速扫读、归档备查四档判断
-- 搜索标题、作者、方法、摘要和个人笔记
-- 收藏论文、设置分类、标记未读/在读/已读/跳过
-- 给论文写本地笔记，刷新后保留
-- 按收藏、核心关注、阅读状态、笔记和分类筛选
-
-## 专业分类
-
-默认分类围绕具身机器人工作流设置：
-
-- 本体/硬件
-- 预训练
-- 后训练
-- RL/DAgger
-- 具身数据
-- 具身推理
-- 移动操作
-- 灵巧操作
-- 灵巧手
-- 仿真/Sim2Real
-- 评测/Benchmark
-- 待复现
-
-## 启动
+## 运行
 
 ```bash
-python3 server.py
+npm install
+python3 app.py
+npm run dev
 ```
 
 打开：
 
 ```text
-http://127.0.0.1:8787
+http://127.0.0.1:5173
 ```
 
-## 启用 Qwen
-
-服务优先读取 `DASHSCOPE_API_KEY`，也兼容 `QWEN_API_KEY`。
+也可以构建后由 Python 单独服务：
 
 ```bash
-export DASHSCOPE_API_KEY="你的 DashScope API Key"
-export QWEN_MODEL="qwen3.6-max-preview"
-export QWEN_ENABLE_THINKING="1"
-python3 server.py
+npm run build
+python3 app.py
 ```
 
-也可以在项目根目录创建本地 `.env` 文件，服务启动时会自动读取：
+构建后打开 `http://127.0.0.1:8787`。
 
-```text
-DASHSCOPE_API_KEY=你的 DashScope API Key
-QWEN_MODEL=qwen3.6-max-preview
-QWEN_ENABLE_THINKING=1
-QWEN_THINKING_BUDGET=1024
-```
-
-`.env` 已加入 `.gitignore`，不会提交到 GitHub。
-
-默认调用 DashScope OpenAI 兼容接口：
-
-```text
-https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
-```
-
-如果你有自建兼容服务，可以设置：
+如果 8787 被占用：
 
 ```bash
-export QWEN_BASE_URL="https://your-host/v1/chat/completions"
+PORT=8789 python3 app.py
 ```
 
-## API
+## Qwen 配置
 
-- `GET /api/health`：服务和 Qwen key 状态
-- `GET /api/settings`：筛选类别和关键词
-- `GET /api/papers?days=2&limit=18&qwen=1`：论文列表、主题、每日总览
+总结功能使用 OpenAI-compatible Chat Completions 接口。推荐直接在页面顶部的 **Qwen API / 前台接入、检测和锁定** 面板中填写：
 
-缺少 API key 时，服务会降级为基于摘要和关键词的规则梳理，页面仍可使用。
+- API Key
+- 模型名，例如 `qwen-plus`
+- Base URL，例如 `https://dashscope.aliyuncs.com/compatible-mode/v1`
 
-## 本地数据
+点击“检测并锁定”后，配置会保存到 `.data/qwen.json`。前端不会回显完整 key，只显示尾号。
 
-运行缓存写入 `.cache/`，收藏、分类、阅读状态和笔记写入 `.data/library.json`。
+也可以继续使用环境变量。环境变量优先级更高，且前台不能覆盖：
 
-这两个目录都已加入 `.gitignore`，不会提交到 GitHub。
+```bash
+export DASHSCOPE_API_KEY="你的 key"
+export QWEN_MODEL="qwen-plus"
+python3 app.py
+```
+
+可选：
+
+```bash
+export QWEN_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+```
+
+## 本地文件
+
+- `.cache/arxiv_pool/<keyword-signature>.json`：同一关键词签名下的 arXiv 聚合池。
+- `.cache/date_papers/<YYYY-MM-DD>/<keyword-signature>.json`：日期论文池。
+- `.cache/qwen_summaries/<YYYY-MM-DD>/<keyword-signature>/...`：Qwen 总结缓存。
+- `.data/library.json`：收藏、分类、阅读状态和笔记。
+- `.data/settings.json`：前端维护的检索关键词和抓取数量。
+- `.data/qwen.json`：前台检测并锁定后的本地 Qwen 配置。
+
+关键词签名由规范化后的关键词集合计算，同一天不同关键词不会串缓存。
